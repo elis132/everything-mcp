@@ -2,7 +2,14 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
-## [1.0.1] ? 2026-02-04
+## [1.0.2] - 2026-02-04
+
+### Changed
+
+- Updated package metadata author to `elis132` (removed author email from PyPI metadata).
+- Updated LICENSE copyright holder name to `elis132`.
+
+## [1.0.1] - 2026-02-04
 
 ### Fixed
 
