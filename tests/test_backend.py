@@ -321,6 +321,9 @@ class TestEverythingBackend:
             mock_run.return_value = ("42\n", "", 0)
             result = await backend.count("ext:py")
             assert result == 42
+            cmd = mock_run.call_args[0][0]
+            assert "-get-result-count" in cmd
+            assert "-n" not in cmd
 
     @pytest.mark.asyncio
     async def test_count_error(self, backend):
@@ -335,6 +338,9 @@ class TestEverythingBackend:
             mock_run.return_value = ("1048576\n", "", 0)
             result = await backend.get_total_size("ext:log")
             assert result == 1048576
+            cmd = mock_run.call_args[0][0]
+            assert "-get-total-size" in cmd
+            assert "-n" not in cmd
 
     @pytest.mark.asyncio
     async def test_health_check_ok(self, backend):

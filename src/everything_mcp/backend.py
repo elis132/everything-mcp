@@ -199,7 +199,8 @@ class EverythingBackend:
     async def count(self, query: str) -> int:
         """Return the number of results for *query* without listing them."""
         cmd = self._base_cmd()
-        cmd.extend(["-n", "0", "-get-result-count", query])
+        # Important: do not combine with "-n 0" because es.exe then reports 0.
+        cmd.extend(["-get-result-count", query])
         stdout, stderr, rc = await self._run(cmd)
 
         if rc != 0:
@@ -213,7 +214,8 @@ class EverythingBackend:
     async def get_total_size(self, query: str) -> int:
         """Return the total size in bytes of all files matching *query*."""
         cmd = self._base_cmd()
-        cmd.extend(["-n", "0", "-get-total-size", query])
+        # Important: do not combine with "-n 0" because es.exe then reports 0.
+        cmd.extend(["-get-total-size", query])
         stdout, stderr, rc = await self._run(cmd)
 
         if rc != 0:
