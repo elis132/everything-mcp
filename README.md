@@ -1,12 +1,15 @@
-# ⚡ Everything MCP
-
-**The definitive MCP server for [voidtools Everything](https://www.voidtools.com/)** — lightning-fast file search for AI agents.
-
-[![PyPI](https://img.shields.io/pypi/v/everything-mcp)](https://pypi.org/project/everything-mcp/)
-[![Python](https://img.shields.io/pypi/pyversions/everything-mcp)](https://pypi.org/project/everything-mcp/)
-[![License](https://img.shields.io/github/license/elis132/everything-mcp)](LICENSE)
-
-Search millions of files in milliseconds. Built for **Claude Code**, **Codex**, **Gemini**, **Kimi**, **Qwen**, **Cursor**, **Windsurf**, and any MCP-compatible client.
+﻿<div align="center">
+  <h1>⚡ Everything MCP</h1>
+  <p>
+    <strong>The definitive MCP server for <a href="https://www.voidtools.com/">voidtools Everything</a> ? lightning-fast file search for AI agents.</strong>
+  </p>
+  <p>
+    <a href="https://pypi.org/project/everything-mcp/"><img alt="PyPI" src="https://img.shields.io/pypi/v/everything-mcp"></a>
+    <a href="https://pypi.org/project/everything-mcp/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/everything-mcp"></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/elis132/everything-mcp"></a>
+  </p>
+  <p>Search millions of files in milliseconds. Built for <strong>Claude Code</strong>, <strong>Codex</strong>, <strong>Gemini</strong>, <strong>Kimi</strong>, <strong>Qwen</strong>, <strong>Cursor</strong>, <strong>Windsurf</strong>, and any MCP-compatible client.</p>
+</div>
 
 ---
 
