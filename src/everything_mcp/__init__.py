@@ -4,7 +4,7 @@ Everything MCP — The definitive MCP server for voidtools Everything.
 Lightning-fast file search for AI agents.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 
 def main() -> None:

@@ -2,6 +2,14 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [1.0.1] ? 2026-02-04
+
+### Fixed
+
+- Fixed `everything_count_stats` reporting `0` for `total_count` and `total_size` on some systems.
+- Updated backend aggregate queries to avoid incompatible `es.exe` flag combinations (`-n 0` with `-get-result-count` / `-get-total-size`).
+- Added backend tests to verify aggregate command construction.
+
 ## [1.0.0] — 2026-02-04
 
 ### Added

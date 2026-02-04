@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "everything-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "The definitive MCP server for voidtools Everything — lightning-fast file search for AI agents"
 readme = "README.md"
 license = { text = "MIT" }
