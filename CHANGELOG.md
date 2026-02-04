@@ -2,6 +2,12 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [1.0.4] - 2026-02-04
+
+### Changed
+
+- Updated README badge URLs with cache-busting query params to force fresh badge values on GitHub and PyPI.
+
 ## [1.0.3] - 2026-02-04
 
 ### Changed
