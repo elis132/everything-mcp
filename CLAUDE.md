@@ -1,4 +1,4 @@
-# Everything MCP — Developer Guide
+# Everything MCP - Developer Guide
 
 ## Overview
 
@@ -25,13 +25,13 @@ tests/
 
 ## Key Design Decisions
 
-- **es.exe CLI** (not SDK DLL) — maximum compatibility across versions
-- **No metadata flags** (`-size -dm -dc`) — clean path-per-line output + `os.stat()` enrichment is simpler and more reliable than parsing version-dependent columnar output
-- **5 tools** (not 1, not 16) — balanced for AI agent efficiency
-- **All tools read-only + idempotent** — annotated for MCP clients
-- **Every tool wrapped in try/except** — returns error strings, never raw exceptions
-- **Async subprocess** — non-blocking for MCP server event loop
-- **`from __future__ import annotations`** — full PEP 604 union syntax on Python 3.10+
+- **es.exe CLI** (not SDK DLL) - maximum compatibility across versions
+- **No metadata flags** (`-size -dm -dc`) - clean path-per-line output + `os.stat()` enrichment is simpler and more reliable than parsing version-dependent columnar output
+- **5 tools** (not 1, not 16) - balanced for AI agent efficiency
+- **All tools read-only + idempotent** - annotated for MCP clients
+- **Every tool wrapped in try/except** - returns error strings, never raw exceptions
+- **Async subprocess** - non-blocking for MCP server event loop
+- **`from __future__ import annotations`** - full PEP 604 union syntax on Python 3.10+
 
 ## Running
 

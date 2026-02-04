@@ -2,6 +2,12 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [1.0.3] - 2026-02-04
+
+### Changed
+
+- Replaced em-dash punctuation with ASCII hyphens (`-`) across docs and source text.
+
 ## [1.0.2] - 2026-02-04
 
 ### Changed
@@ -17,7 +23,7 @@ All notable changes to **everything-mcp** will be documented in this file.
 - Updated backend aggregate queries to avoid incompatible `es.exe` flag combinations (`-n 0` with `-get-result-count` / `-get-total-size`).
 - Added backend tests to verify aggregate command construction.
 
-## [1.0.0] — 2026-02-04
+## [1.0.0] - 2026-02-04
 
 ### Added
 

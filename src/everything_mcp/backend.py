@@ -6,7 +6,7 @@ Handles query execution, result parsing, and metadata enrichment.
 Design decision: es.exe is invoked *without* ``-size -dm -dc`` flags.
 This produces clean one-path-per-line output that is trivially parseable
 regardless of es.exe version, locale, or output encoding. Metadata is
-then enriched via ``os.stat()`` — fast, reliable, and cross-version.
+then enriched via ``os.stat()`` - fast, reliable, and cross-version.
 """
 
 from __future__ import annotations
@@ -364,7 +364,7 @@ def _stat_to_result(filepath: str) -> SearchResult | None:
             dm = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
             dc = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
         except OSError:
-            pass  # Inaccessible — still return the path
+            pass  # Inaccessible - still return the path
 
         return SearchResult(
             path=str(p),

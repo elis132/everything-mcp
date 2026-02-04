@@ -2,7 +2,7 @@
 Auto-detection and configuration for voidtools Everything.
 
 Finds es.exe, detects Everything version/instance, and validates the setup.
-Zero-config by default — discovers installation via PATH, common install
+Zero-config by default - discovers installation via PATH, common install
 locations, and the Windows Registry.
 """
 

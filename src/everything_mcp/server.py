@@ -1,5 +1,5 @@
 """
-Everything MCP Server — The definitive MCP server for voidtools Everything.
+Everything MCP Server - The definitive MCP server for voidtools Everything.
 
 Provides 5 tools for AI agents to search and analyse files at lightning speed
 using voidtools Everything's real-time NTFS index.
@@ -33,7 +33,7 @@ from everything_mcp.backend import (
 )
 from everything_mcp.config import EverythingConfig
 
-# ── Logging (stderr — required for stdio MCP transport) ──────────────────
+# ── Logging (stderr - required for stdio MCP transport) ──────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +53,7 @@ async def lifespan(server):
     """Initialise Everything backend on startup, cleanup on shutdown."""
     global _backend, _config
 
-    logger.info("Everything MCP starting — auto-detecting Everything installation…")
+    logger.info("Everything MCP starting - auto-detecting Everything installation…")
     _config = EverythingConfig.auto_detect()
 
     if _config.is_valid:
@@ -87,7 +87,7 @@ def _get_backend() -> EverythingBackend:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tool 1: everything_search — The Workhorse
+# Tool 1: everything_search - The Workhorse
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -104,7 +104,7 @@ class SearchInput(BaseModel):
             "'ext:py;js path:C:\\Projects' (Python/JS in Projects), "
             "'size:>10mb ext:log' (large logs), "
             "'dm:today ext:py' (Python files modified today), "
-            "'content:TODO ext:py' (files containing TODO — requires content indexing), "
+            "'content:TODO ext:py' (files containing TODO - requires content indexing), "
             "'\"exact phrase\"' (exact filename match), "
             "'regex:test_\\d+\\.py$' (regex). "
             "Combine with space (AND) or | (OR). Prefix ! to exclude."
@@ -174,7 +174,7 @@ async def everything_search(params: SearchInput) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tool 2: everything_search_by_type — Category Search
+# Tool 2: everything_search_by_type - Category Search
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -237,7 +237,7 @@ async def everything_search_by_type(params: SearchByTypeInput) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tool 3: everything_find_recent — What Changed?
+# Tool 3: everything_find_recent - What Changed?
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -297,7 +297,7 @@ async def everything_find_recent(params: FindRecentInput) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tool 4: everything_file_details — Deep Inspection
+# Tool 4: everything_file_details - Deep Inspection
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -402,7 +402,7 @@ def _get_file_details_sync(paths: list[str], preview_lines: int) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tool 5: everything_count_stats — Quick Analytics
+# Tool 5: everything_count_stats - Quick Analytics
 # ═══════════════════════════════════════════════════════════════════════════
 
 

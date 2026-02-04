@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "everything-mcp"
-version = "1.0.2"
-description = "The definitive MCP server for voidtools Everything — lightning-fast file search for AI agents"
+version = "1.0.3"
+description = "The definitive MCP server for voidtools Everything - lightning-fast file search for AI agents"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

@@ -1,7 +1,7 @@
 ﻿<div align="center">
   <h1>⚡ Everything MCP</h1>
   <p>
-    <strong>The definitive MCP server for <a href="https://www.voidtools.com/">voidtools Everything</a> — lightning-fast file search for AI agents.</strong>
+    <strong>The definitive MCP server for <a href="https://www.voidtools.com/">voidtools Everything</a> - lightning-fast file search for AI agents.</strong>
   </p>
   <p>
     <a href="https://pypi.org/project/everything-mcp/"><img alt="PyPI" src="https://img.shields.io/pypi/v/everything-mcp"></a>
@@ -80,7 +80,7 @@ print("Matches:", len(matches))
    - Place `es.exe` in your PATH or in the Everything installation directory
 3. **Python 3.10+** or **uv**
 
-### Via uv (recommended — no install needed)
+### Via uv (recommended - no install needed)
 
 ```bash
 uvx everything-mcp
@@ -295,7 +295,7 @@ Everything MCP auto-detects your setup, but you can override:
 
 ## Tools
 
-### 1. `everything_search` — The Workhorse
+### 1. `everything_search` - The Workhorse
 
 Search files and folders using Everything's full query syntax.
 
@@ -332,7 +332,7 @@ dupe:                         → Duplicate filenames
 empty:                        → Empty folders
 ```
 
-### 2. `everything_search_by_type` — Category Search
+### 2. `everything_search_by_type` - Category Search
 
 Search by pre-defined file type categories.
 
@@ -346,7 +346,7 @@ Search by pre-defined file type categories.
 | `max_results` | 50 | 1–500 |
 | `sort` | `date-modified-desc` | Sort order |
 
-### 3. `everything_find_recent` — What Changed?
+### 3. `everything_find_recent` - What Changed?
 
 Find recently modified files. Sorted newest-first.
 
@@ -360,7 +360,7 @@ Find recently modified files. Sorted newest-first.
 | `query` | `""` | Additional filter |
 | `max_results` | 50 | 1–500 |
 
-### 4. `everything_file_details` — Deep Inspection
+### 4. `everything_file_details` - Deep Inspection
 
 Get metadata and optional content preview for specific files.
 
@@ -371,7 +371,7 @@ Get metadata and optional content preview for specific files.
 
 **Returns:** Full metadata (size, dates, permissions, hidden status). Directories: item count and listing. Text files with preview: first N lines of content.
 
-### 5. `everything_count_stats` — Quick Analytics
+### 5. `everything_count_stats` - Quick Analytics
 
 Get count and size statistics without listing individual files.
 
@@ -498,7 +498,7 @@ Contributions welcome! Areas for improvement:
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
