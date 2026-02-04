@@ -35,14 +35,38 @@ Real benchmark from this machine (Windows, query: `everything.exe`):
 - Naive filesystem walk over `C:\`: **66,539.03 ms** (single run)
 - Observed speedup: **~302x faster**
 
-Repro approach:
+Reproduce locally (PowerShell):
 
-```bash
-# Indexed search path (fast)
-everything_search(query="everything.exe")
+```powershell
+@'
+import os
+import subprocess
+import time
+import statistics
 
-# Baseline (slow): recursive filesystem walk without Everything index
-# e.g. Python os.walk on C:\
+ES = os.path.expandvars(r"%LOCALAPPDATA%\Everything\es.exe")
+QUERY = "everything.exe"
+
+es_runs = []
+for _ in range(5):
+    t0 = time.perf_counter()
+    subprocess.run([ES, "-n", "100", QUERY], capture_output=True, text=True)
+    es_runs.append((time.perf_counter() - t0) * 1000)
+
+t0 = time.perf_counter()
+matches = []
+for dirpath, _, filenames in os.walk(r"C:\\"):
+    for name in filenames:
+        if name.lower() == QUERY:
+            matches.append(os.path.join(dirpath, name))
+walk_ms = (time.perf_counter() - t0) * 1000
+
+es_avg = statistics.mean(es_runs)
+print("ES avg ms:", round(es_avg, 2))
+print("Walk ms:", round(walk_ms, 2))
+print("Speedup x:", round(walk_ms / es_avg, 1))
+print("Matches:", len(matches))
+'@ | python -
 ```
 
 ## Installation
