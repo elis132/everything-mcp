@@ -187,7 +187,9 @@ class EverythingBackend:
         # Split query into separate args so es.exe treats spaces as AND
         # operators.  A single quoted arg like "dm:today ext:md" would be
         # searched as a literal string and return 0 results.
-        cmd.extend(query.split())
+        # Must preserve quoted sections (e.g. "exact name.txt",
+        # path:"C:\My Documents") as single tokens.
+        cmd.extend(_split_query_terms(query))
 
         stdout, stderr, rc = await self._run(cmd)
 
@@ -383,6 +385,45 @@ def _stat_to_result(filepath: str) -> SearchResult | None:
         logger.debug("Failed to stat '%s': %s", filepath, exc)
         # Return a bare result so we at least report the path
         return SearchResult(path=filepath, name=Path(filepath).name or filepath)
+
+
+# ── Query splitting ────────────────────────────────────────────────────────
+
+
+def _split_query_terms(query: str) -> list[str]:
+    """Split an Everything query into separate terms for es.exe argv.
+
+    es.exe requires separate arguments for AND logic.  ``es.exe dm:today
+    ext:md`` works but ``es.exe "dm:today ext:md"`` searches the literal
+    string.
+
+    Quoted sections (Everything syntax for grouping) must stay intact:
+    ``path:"C:\\My Path"`` and ``"exact name.txt"`` are single tokens.
+    """
+    tokens: list[str] = []
+    i = 0
+    n = len(query)
+    while i < n:
+        # Skip whitespace
+        if query[i] == " ":
+            i += 1
+            continue
+        # Collect one token
+        start = i
+        while i < n:
+            if query[i] == '"':
+                # Skip to closing quote
+                i += 1
+                while i < n and query[i] != '"':
+                    i += 1
+                if i < n:
+                    i += 1  # skip closing quote
+            elif query[i] == " ":
+                break
+            else:
+                i += 1
+        tokens.append(query[start:i])
+    return tokens
 
 
 # ── Query builders ────────────────────────────────────────────────────────
