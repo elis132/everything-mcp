@@ -183,7 +183,13 @@ class EverythingBackend:
         # NOTE: We intentionally omit -size / -dm / -dc.  Keeping es.exe
         # output as plain one-path-per-line makes parsing trivial and
         # version-independent.  Metadata comes from os.stat() below.
-        cmd.append(query)
+        #
+        # Split query into separate args so es.exe treats spaces as AND
+        # operators.  A single quoted arg like "dm:today ext:md" would be
+        # searched as a literal string and return 0 results.
+        # Must preserve quoted sections (e.g. "exact name.txt",
+        # path:"C:\My Documents") as single tokens.
+        cmd.extend(_split_query_terms(query))
 
         stdout, stderr, rc = await self._run(cmd)
 
@@ -379,6 +385,51 @@ def _stat_to_result(filepath: str) -> SearchResult | None:
         logger.debug("Failed to stat '%s': %s", filepath, exc)
         # Return a bare result so we at least report the path
         return SearchResult(path=filepath, name=Path(filepath).name or filepath)
+
+
+# ── Query splitting ────────────────────────────────────────────────────────
+
+
+def _split_query_terms(query: str) -> list[str]:
+    """Split an Everything query into separate terms for es.exe argv.
+
+    es.exe requires separate arguments for AND logic.  ``es.exe dm:today
+    ext:md`` works but ``es.exe "dm:today ext:md"`` searches the literal
+    string.
+
+    Quoted sections (Everything syntax for grouping) are kept together as
+    single tokens, then quotes are stripped because es.exe argv elements
+    are passed literally — quotes are a shell concept, not es.exe's.
+    """
+    tokens: list[str] = []
+    i = 0
+    n = len(query)
+    while i < n:
+        # Skip whitespace
+        if query[i] == " ":
+            i += 1
+            continue
+        # Collect one token (respecting quoted sections)
+        start = i
+        while i < n:
+            if query[i] == '"':
+                # Skip to closing quote
+                i += 1
+                while i < n and query[i] != '"':
+                    i += 1
+                if i < n:
+                    i += 1  # skip closing quote
+            elif query[i] == " ":
+                break
+            else:
+                i += 1
+        token = query[start:i]
+        # Strip quotes: es.exe receives argv literally, quotes are
+        # shell-only. path:"C:\My Path" → path:C:\My Path
+        token = token.replace('"', '')
+        if token:
+            tokens.append(token)
+    return tokens
 
 
 # ── Query builders ────────────────────────────────────────────────────────

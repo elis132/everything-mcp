@@ -13,6 +13,27 @@
 
 ---
 
+> **Fork of [elis132/everything-mcp](https://github.com/elis132/everything-mcp)** with bug fixes.
+>
+> ### What's Fixed
+>
+> - **Multi-term AND queries now work**: `dm:today ext:md`, `find_recent` with `extensions`, `search_by_type` with `path` — all returned 0 in the original due to es.exe argv handling. See [#2](https://github.com/elis132/everything-mcp/issues/2).
+>
+> ### Install This Fork
+>
+> ```json
+> {
+>   "mcpServers": {
+>     "everything": {
+>       "command": "uvx",
+>       "args": ["--from", "git+https://github.com/Zouxd2004/everything-mcp.git", "everything-mcp"]
+>     }
+>   }
+> }
+> ```
+
+---
+
 ## Why This One?
 
 | Feature | everything-mcp (this) | mamertofabian (271⭐) | essovius (0⭐) |
