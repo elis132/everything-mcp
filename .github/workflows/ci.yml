@@ -6,6 +6,10 @@ on:
   pull_request:
 
 jobs:
+  # Resolves mcp the way a fresh `uvx`/`pip` install does (currently 2.x).
+  # Job names here are pinned as required status checks, so keep the matrix
+  # dimensions stable - adding one renames every job and the required checks
+  # then never report.
   test:
     strategy:
       fail-fast: false
@@ -20,6 +24,33 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
+      - name: Show resolved mcp version
+        run: python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
+      - name: Test
+        run: pytest -v
+
+  # mcp 2.0 renamed FastMCP to MCPServer and moved it, which broke every fresh
+  # install (#13); server.py now imports through a compat shim. This job keeps
+  # the older SDK line covered so the shim cannot rot unnoticed. Separate from
+  # `test` rather than a matrix dimension, to leave those job names untouched.
+  test-mcp1:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install with mcp 1.x
+        run: |
+          pip install -e ".[dev]"
+          pip install "mcp<2.0.0"
+      - name: Show resolved mcp version
+        run: python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
       - name: Test
         run: pytest -v
 

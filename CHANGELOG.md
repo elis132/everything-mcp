@@ -2,6 +2,17 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [1.0.7] - 2026-09-14
+
+### Fixed
+
+- **Fresh installs crashed on startup with `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`.** mcp 2.0 renamed `FastMCP` to `MCPServer` and moved it to `mcp.server.mcpserver`; since the dependency was declared as an unbounded `mcp>=1.0.0`, every new `uvx everything-mcp` / `pip install everything-mcp` resolved mcp 2.x and failed immediately. `server.py` now imports through a compat shim, so the server runs on both mcp 1.x and 2.x (#13, diagnosed by @ina6ra and @aispecialist-dev).
+
+### Added
+
+- CI now runs the full suite against both mcp 1.x and mcp 2.x, so an SDK rename fails in CI instead of in published installs.
+- Tests asserting all 5 tools register through the real MCP SDK and keep their read-only annotations.
+
 ## [1.0.6] - 2026-07-02
 
 ### Added
