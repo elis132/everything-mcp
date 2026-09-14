@@ -7,12 +7,12 @@
     "url": "https://github.com/elis132/everything-mcp",
     "source": "github"
   },
-  "version": "1.0.6",
+  "version": "1.0.7",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "everything-mcp",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "transport": {
         "type": "stdio"
       }
