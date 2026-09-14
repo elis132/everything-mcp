@@ -12,6 +12,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.13"]
+        # Both supported SDK lines: mcp 2.x renamed FastMCP to MCPServer, so
+        # server.py imports it through a compat shim. Testing both keeps a
+        # future SDK rename from silently breaking published installs (#13).
+        mcp-spec: ["mcp<2.0.0", "mcp>=2.0.0"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -19,7 +23,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -e ".[dev]"
+          pip install "${{ matrix.mcp-spec }}"
+      - name: Show resolved mcp version
+        run: python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
       - name: Test
         run: pytest -v
 
