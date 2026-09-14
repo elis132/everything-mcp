@@ -288,3 +288,41 @@ class TestToolErrorHandling:
         finally:
             server._backend = old_backend
             server._config = old_config
+
+
+# ── MCP SDK registration (mcp 1.x / 2.x compat) ──────────────────────────
+
+
+class TestSdkToolRegistration:
+    """Guards the mcp 1.x/2.x compat import in ``server.py``.
+
+    mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` and moved it out of
+    ``mcp.server.fastmcp``, which crashed every fresh install on startup
+    (#13). These assertions go through the real SDK, so a future rename
+    fails here instead of in users' clients.
+    """
+
+    @pytest.mark.asyncio
+    async def test_all_tools_registered_with_sdk(self):
+        from everything_mcp.server import mcp
+
+        names = {tool.name for tool in await mcp.list_tools()}
+        assert names == {
+            "everything_search",
+            "everything_search_by_type",
+            "everything_find_recent",
+            "everything_file_details",
+            "everything_count_stats",
+        }
+
+    @pytest.mark.asyncio
+    async def test_tools_carry_read_only_annotations(self):
+        """Asserts the serialized form: mcp 1.x exposes camelCase attributes and
+        2.x snake_case, but both serialize to the same camelCase wire keys."""
+        from everything_mcp.server import mcp
+
+        for tool in await mcp.list_tools():
+            assert tool.annotations is not None, f"{tool.name} lost its annotations"
+            annotations = tool.annotations.model_dump(by_alias=True, exclude_none=True)
+            assert annotations["readOnlyHint"] is True
+            assert annotations["destructiveHint"] is False
