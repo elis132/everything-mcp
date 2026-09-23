@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -453,6 +455,66 @@ class TestEverythingBackend:
         backend = EverythingBackend(invalid_config)
         status = await backend.health_check()
         assert status["status"] == "error"
+
+
+# ── _run process handling (#18) ───────────────────────────────────────────
+
+_SLEEP_CMD = [sys.executable, "-c", "import time; time.sleep(30)"]
+
+
+class TestRun:
+    @pytest.fixture
+    def spawned(self):
+        """Record every process _run starts."""
+        procs = []
+        real_exec = asyncio.create_subprocess_exec
+
+        async def spy(*args, **kwargs):
+            proc = await real_exec(*args, **kwargs)
+            procs.append(proc)
+            return proc
+
+        with patch("everything_mcp.backend.asyncio.create_subprocess_exec", spy):
+            yield procs
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_and_reaps_process(self, backend, spawned):
+        backend.config.timeout = 0.5
+        with pytest.raises(RuntimeError, match="timed out"):
+            await backend._run(_SLEEP_CMD)
+        assert spawned[0].returncode is not None
+
+    @pytest.mark.asyncio
+    async def test_cancel_kills_process(self, backend, spawned):
+        task = asyncio.create_task(backend._run(_SLEEP_CMD))
+        while not spawned:
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert spawned[0].returncode is not None
+
+    @pytest.mark.asyncio
+    async def test_calls_run_one_at_a_time(self, backend):
+        active = peak = 0
+
+        class FakeProcess:
+            returncode = 0
+
+            async def communicate(self):
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                await asyncio.sleep(0.05)
+                active -= 1
+                return b"", b""
+
+        async def fake_exec(*args, **kwargs):
+            return FakeProcess()
+
+        with patch("everything_mcp.backend.asyncio.create_subprocess_exec", fake_exec):
+            await asyncio.gather(*(backend._run(["es.exe"]) for _ in range(3)))
+        assert peak == 1
 
 
 # ── SORT_MAP / FILE_TYPES / TIME_PERIODS consistency ─────────────────────

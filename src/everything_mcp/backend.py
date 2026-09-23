@@ -140,6 +140,7 @@ class EverythingBackend:
 
     def __init__(self, config: EverythingConfig) -> None:
         self.config = config
+        self._lock = asyncio.Lock()
 
     # ── Primary search ────────────────────────────────────────────────
 
@@ -273,40 +274,49 @@ class EverythingBackend:
 
     async def _run(self, cmd: list[str]) -> tuple[str, str, int]:
         """Run es.exe asynchronously.  Returns ``(stdout, stderr, returncode)``."""
-        try:
-            kwargs: dict = dict(
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            # CREATE_NO_WINDOW only exists on Windows
-            create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            if create_no_window:
-                kwargs["creationflags"] = create_no_window
+        kwargs: dict = dict(
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        # CREATE_NO_WINDOW only exists on Windows
+        create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if create_no_window:
+            kwargs["creationflags"] = create_no_window
 
-            process = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+        # One es.exe at a time: Everything answers IPC queries one by one, so
+        # parallel calls only pile up inside Everything, where a query we have
+        # already given up on keeps it busy (#18).
+        async with self._lock:
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(*cmd, **kwargs)
 
-            stdout_raw, stderr_raw = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.config.timeout,
-            )
+                stdout_raw, stderr_raw = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.config.timeout,
+                )
 
-            return (
-                _decode_output(stdout_raw),
-                _decode_output(stderr_raw),
-                process.returncode or 0,
-            )
+                return (
+                    _decode_output(stdout_raw),
+                    _decode_output(stderr_raw),
+                    process.returncode or 0,
+                )
 
-        except asyncio.TimeoutError as exc:
-            with contextlib.suppress(Exception):
-                process.kill()  # type: ignore[possibly-undefined]
-            raise RuntimeError(
-                f"Search timed out after {self.config.timeout}s. "
-                "Try a more specific query or increase timeout."
-            ) from exc
-        except FileNotFoundError as exc:
-            raise RuntimeError(
-                f"es.exe not found at: {self.config.es_path}. Verify Everything is installed."
-            ) from exc
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    f"Search timed out after {self.config.timeout}s. "
+                    "Try a more specific query or increase timeout."
+                ) from exc
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    f"es.exe not found at: {self.config.es_path}. Verify Everything is installed."
+                ) from exc
+            finally:
+                # Timeout or client cancellation: never leave es.exe running.
+                if process is not None and process.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.kill()
+                    await process.wait()
 
 
 # ── Parsing & enrichment ──────────────────────────────────────────────────

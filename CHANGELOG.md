@@ -2,6 +2,13 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [1.0.8] - 2026-09-23
+
+### Fixed
+
+- **es.exe processes could pile up when calls timed out or were cancelled.** A tool call cancelled by the MCP client (for example when the client's own timeout fired first) left its `es.exe` running, and a timed-out call killed `es.exe` without waiting for it to exit. Both paths now kill and reap the process (#18).
+- **Parallel tool calls no longer queue up inside Everything.** Everything answers IPC queries one at a time, so concurrent `es.exe` calls only waited inside Everything, where a query the server had already given up on kept it busy. The server now runs one `es.exe` at a time (#18).
+
 ## [1.0.7] - 2026-09-14
 
 ### Fixed
