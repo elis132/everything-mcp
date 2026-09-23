@@ -1,7 +1,7 @@
 {
   "name": "everything-mcp",
   "description": "Lightning-fast Windows file search for AI agents via voidtools Everything - 5 MCP tools for search, type filtering, recent files, file details, and count/size stats",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "author": {
     "name": "elis132"
   },
