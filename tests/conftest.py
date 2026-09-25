@@ -73,3 +73,13 @@ def sample_results() -> list[SearchResult]:
             date_modified="2026-01-15 10:30:00",
         ),
     ]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_machine_lock(tmp_path, monkeypatch):
+    """Keep tests off the real cross-session lock used by live MCP sessions."""
+    import everything_mcp.backend as backend_mod
+    import everything_mcp.config as config_mod
+
+    monkeypatch.setattr(config_mod, "_MACHINE_LOCK", str(tmp_path / "everything-mcp.lock"))
+    monkeypatch.setattr(backend_mod, "_last_release", 0.0)

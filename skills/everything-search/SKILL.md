@@ -33,8 +33,8 @@ report.pdf                    name contains "report.pdf"
 ext:py;js;ts                  multiple extensions
 path:C:\Projects ext:py       restrict to a directory tree
 size:>10mb  size:1kb..1mb     size filters
-dm:today  dm:last1week        modified date
-dc:2024                       created date
+dm:today  dm:last7days        modified date (plural units: last2hours)
+path:X dc:2024                created date (slow unless indexed: scope it)
 "exact name.txt"              phrase with spaces (quote it)
 a | b                         OR
 !node_modules                 exclude
@@ -56,9 +56,14 @@ regex:^test_.*\.py$           regex (or pass match_regex=true)
 ## Pitfalls
 
 - Paths with spaces must be quoted INSIDE the query: `path:"C:\My Documents"`.
-- Results reflect the index, not content: `content:` search only works if the
-  user enabled content indexing in Everything (rare) - to search inside files,
-  find candidates by name first, then read them.
+- Results reflect the index, not content. `content:`, `width:`/`height:`,
+  music tags and (unless indexed) `dc:`/`da:`/`attrib:` read files from disk
+  and block Everything while they run, so the server only allows them after
+  `path:`/`ext:`/name terms that narrow the candidates (1,000 files and 100 MB
+  for content, 30,000 for dates). To search inside many files, find candidates
+  by name first, then grep them.
+- If a tool says Everything is busy, do not retry in a loop: wait, or ask the
+  user to restart Everything. Never kill Everything yourself.
 - Everything must be running; if tools return connection errors, tell the user
   to start Everything (system tray). Do not suggest setting
   `EVERYTHING_INSTANCE` unless they configured a named instance.

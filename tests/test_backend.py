@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import everything_mcp.backend as backend_mod
 from everything_mcp.backend import (
     FILE_TYPES,
     SORT_MAP,
@@ -187,7 +190,7 @@ class TestBuildTypeQuery:
 class TestBuildRecentQuery:
     def test_default_period(self):
         q = build_recent_query()
-        assert "dm:last1hour" in q
+        assert "dm:last1hours" in q
 
     def test_today(self):
         q = build_recent_query("today")
@@ -195,7 +198,7 @@ class TestBuildRecentQuery:
 
     def test_with_path(self):
         q = build_recent_query("1week", path_filter=r"C:\Projects")
-        assert "dm:last1week" in q
+        assert "dm:last7days" in q
         assert 'path:"C:\\Projects"' in q
 
     def test_with_extensions_comma(self):
@@ -235,18 +238,18 @@ class TestSplitQueryTerms:
         assert _split_query_terms("dm:today ext:md") == ["dm:today", "ext:md"]
 
     def test_quoted_phrase_kept_together(self):
-        assert _split_query_terms('"exact name.txt"') == ["exact name.txt"]
+        assert _split_query_terms('"exact name.txt"') == ['"exact name.txt"']
 
     def test_quoted_path_filter(self):
         assert _split_query_terms('ext:md path:"C:\\My Documents"') == [
             "ext:md",
-            "path:C:\\My Documents",
+            'path:"C:\\My Documents"',
         ]
 
     def test_mixed_quoted_and_plain(self):
         assert _split_query_terms('dupe: path:"C:\\Users\\me\\My Docs" ext:py') == [
             "dupe:",
-            "path:C:\\Users\\me\\My Docs",
+            'path:"C:\\Users\\me\\My Docs"',
             "ext:py",
         ]
 
@@ -260,7 +263,8 @@ class TestSplitQueryTerms:
         assert _split_query_terms("   ") == []
 
     def test_unclosed_quote_consumes_rest(self):
-        assert _split_query_terms('path:"C:\\My Documents') == ["path:C:\\My Documents"]
+        # Closed at the token's end, so reordered terms after it stay separate.
+        assert _split_query_terms('path:"C:\\My Documents') == ['path:"C:\\My Documents"']
 
     def test_or_and_negation_terms_pass_through(self):
         assert _split_query_terms("project1 | project2 !node_modules") == [
@@ -399,7 +403,7 @@ class TestEverythingBackend:
             assert result == 7
             cmd = mock_run.call_args[0][0]
             assert "ext:md" in cmd
-            assert "path:C:\\My Docs" in cmd
+            assert 'path:"C:\\My Docs"' in cmd
 
     @pytest.mark.asyncio
     async def test_count_uint64_error_sentinel(self, backend):
@@ -457,42 +461,238 @@ class TestEverythingBackend:
         assert status["status"] == "error"
 
 
+# ── Agreement with es.exe's own argument parser ───────────────────────────
+
+
+def _es_argv(command_line: str) -> list[str]:
+    """Port of es.exe's default-mode parser (es.c ``_es_get_argv``, 1.1.0.38).
+
+    Unquoted space/tab/CR/LF end an argument; ``\"\"\"`` becomes a literal
+    ``&quot:`` without toggling quoting; single quotes toggle and are kept.
+    """
+    args, i, n = [], 0, len(command_line)
+    while True:
+        while i < n and command_line[i] in " \t\r\n":
+            i += 1
+        if i >= n:
+            return args
+        out, in_quote = [], False
+        while i < n and (in_quote or command_line[i] not in " \t\r\n"):
+            if command_line.startswith('"""', i):
+                out.append("&quot:")
+                i += 3
+                continue
+            if command_line[i] == '"':
+                in_quote = not in_quote
+            out.append(command_line[i])
+            i += 1
+        args.append("".join(out))
+
+
+_OUR_OPTIONS = {"-n", "-o", "-sort", "-case", "-w", "-p", "-r", "-instance"}
+_OUR_OPTIONS |= {"-get-result-count", "-get-total-size"}
+
+
+class TestEsParserAgreement:
+    def test_tokens_are_exactly_the_arguments_es_exe_sees(self):
+        import random
+
+        rng = random.Random(18)
+        alphabet = ' \t\r\n"ab-/'
+        for _ in range(3000):
+            query = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 14)))
+            tokens = _split_query_terms(query)
+            assert len(_es_argv(query)) == len(tokens), repr(query)
+            assert len(_es_argv(" ".join(tokens))) == len(tokens), repr(query)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "query",
+        [
+            'x""" -exit',
+            'ext:py"a"\t-exit',
+            '"a"\n-save-db',
+            "a\r\n/reindex",
+            '"x" -export-csv C:\\out.csv',
+            "-exit",
+        ],
+    )
+    async def test_no_query_term_reaches_es_exe_as_a_switch(self, backend, query):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search(query)
+        es_args = _es_argv(backend_mod._command_line(mock_run.call_args.args[0]))[1:]
+        options = {a for a in es_args if a.startswith(("-", "/"))}
+        assert options <= _OUR_OPTIONS, options
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("query", "regex"),
+        [
+            ('regex:"a"\tcontent:secret', False),
+            ('regex:x""" content:secret', False),
+            ("regex:a\ncontent:x", False),
+            ('x""" content:secret', True),
+        ],
+    )
+    async def test_disk_term_split_off_by_es_exe_is_still_guarded(self, backend, query, regex):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("5000\n", "", 0)
+            with pytest.raises(RuntimeError, match="content:"):
+                await backend.search(query, match_regex=regex)
+        assert "-get-result-count" in mock_run.call_args_list[0].args[0]
+
+    @pytest.mark.asyncio
+    async def test_slow_regex_head_is_refused_not_moved(self, backend):
+        with (
+            patch.object(backend, "_run", new_callable=AsyncMock) as mock_run,
+            pytest.raises(RuntimeError, match="the regex must not use content:"),
+        ):
+            await backend.search("content:x ext:py", match_regex=True)
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("glue", ["OR", "NOT", "AND", "(ext:py", "ext:py)", "!"])
+    async def test_literal_operators_and_brackets_count_as_grouping(self, backend, glue):
+        with (
+            patch.object(backend, "_run", new_callable=AsyncMock) as mock_run,
+            pytest.raises(RuntimeError, match="cannot be combined"),
+        ):
+            await backend.search(f"ext:txt {glue} content:x")
+        mock_run.assert_not_called()
+
+
 # ── _run process handling (#18) ───────────────────────────────────────────
 
 _SLEEP_CMD = [sys.executable, "-c", "import time; time.sleep(30)"]
+_QUICK_CMD = [sys.executable, "-c", "print('ok')"]
 
 
 class TestRun:
     @pytest.fixture
     def spawned(self):
-        """Record every process _run starts."""
+        """Record every process _run starts; kill leftovers at teardown."""
         procs = []
-        real_exec = asyncio.create_subprocess_exec
+        real_popen = subprocess.Popen
 
-        async def spy(*args, **kwargs):
-            proc = await real_exec(*args, **kwargs)
+        def spy(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
             procs.append(proc)
             return proc
 
-        with patch("everything_mcp.backend.asyncio.create_subprocess_exec", spy):
+        with patch("everything_mcp.backend.subprocess.Popen", spy):
             yield procs
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
 
     @pytest.mark.asyncio
-    async def test_timeout_kills_and_reaps_process(self, backend, spawned):
+    async def test_timeout_keeps_es_running_and_reports_busy(self, backend, spawned):
         backend.config.timeout = 0.5
         with pytest.raises(RuntimeError, match="timed out"):
             await backend._run(_SLEEP_CMD)
-        assert spawned[0].returncode is not None
+        es = spawned[0]
+        # Killing es.exe would not cancel its query inside Everything; its
+        # exit is the only signal that Everything is free again.
+        assert es.returncode is None
+        with pytest.raises(RuntimeError, match="still running an earlier query"):
+            await backend._run(_QUICK_CMD)
+        assert len(spawned) == 1  # nothing queued behind the slow query
+        assert (await backend.health_check())["status"] == "busy"
+
+        es.kill()
+        await backend._pending
+        stdout, _, rc = await backend._run(_QUICK_CMD)
+        assert (stdout.strip(), rc) == ("ok", 0)
 
     @pytest.mark.asyncio
-    async def test_cancel_kills_process(self, backend, spawned):
+    async def test_cancel_keeps_es_running_and_reports_busy(self, backend, spawned):
         task = asyncio.create_task(backend._run(_SLEEP_CMD))
         while not spawned:
             await asyncio.sleep(0.01)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert spawned[0].returncode is not None
+        with pytest.raises(RuntimeError, match="still running an earlier query"):
+            await backend._run(_QUICK_CMD)
+        spawned[0].kill()
+        await backend._pending
+
+    @pytest.mark.asyncio
+    async def test_pending_es_keeps_other_sessions_out(self, backend, spawned):
+        backend.config.timeout = 0.5
+        with pytest.raises(RuntimeError, match="timed out"):
+            await backend._run(_SLEEP_CMD)
+        assert backend_mod._try_machine_lock() is None  # another session would wait
+
+        spawned[0].kill()
+        await backend._pending
+        fd = backend_mod._try_machine_lock()
+        assert fd is not None and fd >= 0
+        backend_mod._release_machine_lock(fd)
+
+    @pytest.mark.asyncio
+    async def test_other_session_query_makes_calls_fail_busy(self, backend, spawned, monkeypatch):
+        monkeypatch.setattr(backend_mod, "_MACHINE_LOCK_WAIT", 0.3)
+        other = backend_mod._try_machine_lock()  # another session's es.exe is in Everything
+        try:
+            with pytest.raises(RuntimeError, match="another everything-mcp session"):
+                await backend._run(_QUICK_CMD)
+            assert not spawned
+        finally:
+            backend_mod._release_machine_lock(other)
+        stdout, _, _ = await backend._run(_QUICK_CMD)
+        assert stdout.strip() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_queued_calls_share_one_wait_for_another_session(self, backend, monkeypatch):
+        monkeypatch.setattr(backend_mod, "_MACHINE_LOCK_WAIT", 0.3)
+        other = backend_mod._try_machine_lock()
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        try:
+            results = await asyncio.gather(
+                *(backend._run(_QUICK_CMD) for _ in range(4)), return_exceptions=True
+            )
+        finally:
+            backend_mod._release_machine_lock(other)
+        assert all("another everything-mcp session" in str(r) for r in results)
+        assert loop.time() - start < 0.9  # not 4 x 0.3 s one after another
+
+    @pytest.mark.asyncio
+    async def test_waiting_session_gets_a_turn_after_our_release(self, backend):
+        await backend._run(_QUICK_CMD)
+        # Right after our release, another session polling every 50 ms must win.
+        other = backend_mod._try_machine_lock()
+        assert other is not None and other >= 0
+        task = asyncio.create_task(backend._run(_QUICK_CMD))
+        await asyncio.sleep(0.2)
+        assert not task.done()  # we wait for the other session's query
+        backend_mod._release_machine_lock(other)
+        stdout, _, _ = await task
+        assert stdout.strip() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_own_release_pauses_before_retaking_the_lock(self, backend):
+        await backend._run(_QUICK_CMD)
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        fd = await backend_mod._acquire_machine_lock(loop.time() + 5)
+        backend_mod._release_machine_lock(fd)
+        assert loop.time() - start >= backend_mod._LOCK_YIELD * 0.5
+
+    @pytest.mark.asyncio
+    async def test_everything_restart_drops_pending_es(self, backend, spawned, monkeypatch):
+        windows = iter([111] + [222] * 1000)  # IPC window at spawn, then a new Everything
+        monkeypatch.setattr(backend_mod, "_ipc_window", lambda instance: next(windows))
+        monkeypatch.setattr(backend_mod, "_WATCH_INTERVAL", 0.05)
+        backend.config.timeout = 0.5
+        with pytest.raises(RuntimeError, match="timed out"):
+            await backend._run(_SLEEP_CMD)
+        backend.config.timeout = 30
+        await asyncio.wait_for(backend._pending, 10)  # watcher killed the orphaned es.exe
+        stdout, _, _ = await backend._run(_QUICK_CMD)
+        assert stdout.strip() == "ok"
 
     @pytest.mark.asyncio
     async def test_calls_run_one_at_a_time(self, backend):
@@ -501,20 +701,209 @@ class TestRun:
         class FakeProcess:
             returncode = 0
 
-            async def communicate(self):
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def communicate(self):  # runs in a worker thread, like the real one
                 nonlocal active, peak
                 active += 1
                 peak = max(peak, active)
-                await asyncio.sleep(0.05)
+                time.sleep(0.05)
                 active -= 1
                 return b"", b""
 
-        async def fake_exec(*args, **kwargs):
-            return FakeProcess()
-
-        with patch("everything_mcp.backend.asyncio.create_subprocess_exec", fake_exec):
+        with patch("everything_mcp.backend.subprocess.Popen", FakeProcess):
             await asyncio.gather(*(backend._run(["es.exe"]) for _ in range(3)))
         assert peak == 1
+
+    def test_command_line_keeps_query_quotes(self):
+        """es.exe parses its own command line: path:"C:\\x y" must arrive as typed."""
+        line = backend_mod._command_line(
+            [r"C:\Program Files\Everything\es.exe", "-n", "5", r'path:"C:\Program Files\WSL"']
+        )
+        assert line == r'"C:\Program Files\Everything\es.exe" -n 5 path:"C:\Program Files\WSL"'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("term", ["-exit", "/reindex", "-export-csv", "--"])
+    async def test_query_terms_never_become_es_switches(self, backend, term):
+        """es.exe runs -exit (quit Everything), -reindex, -export-csv <file> as options."""
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search(f"ext:py {term}")
+        assert mock_run.call_args.args[0][-1] == f'"{term}"'
+
+
+# ── Disk-reading query guard (#18) ────────────────────────────────────────
+
+
+def _es_calls(mock_run) -> list[list[str]]:
+    return [call.args[0] for call in mock_run.call_args_list]
+
+
+class TestDiskGuard:
+    @pytest.mark.asyncio
+    async def test_disk_term_runs_last_after_candidate_count(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [("12\n", "", 0), ("4096\n", "", 0), ("", "", 0)]
+            await backend.search(r"content:TODO ext:py path:D:\proj")
+        precount, presize, search = _es_calls(mock_run)
+        assert "-get-result-count" in precount
+        assert precount[-2:] == ["ext:py", r"path:D:\proj"]
+        assert "-get-total-size" in presize
+        assert search[-3:] == ["ext:py", r"path:D:\proj", "content:TODO"]
+
+    @pytest.mark.asyncio
+    async def test_content_refused_over_byte_budget(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [("3\n", "", 0), (f"{5 * 1024**3}\n", "", 0)]
+            with pytest.raises(RuntimeError, match=r"matches 5.0 GB of files"):
+                await backend.search("ext:iso content:x")
+
+    @pytest.mark.asyncio
+    async def test_precount_uses_the_query_match_flags(self, backend):
+        """match_path makes Everything match whole paths: far more candidates (#18 review)."""
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("2590840\n", "", 0)
+            with pytest.raises(RuntimeError, match="2,590,840 items"):
+                await backend.search("src dc:today", match_path=True)
+        assert "-p" in _es_calls(mock_run)[0]
+
+    @pytest.mark.asyncio
+    async def test_regex_mode_guards_terms_after_the_regex(self, backend):
+        """es.exe -r takes only the next argument as the regex."""
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [("5\n", "", 0), ("10\n", "", 0), ("", "", 0)]
+            await backend.search(r"test_\d+ content:x", match_regex=True)
+        precount, _, search = _es_calls(mock_run)
+        assert precount[-2:] == ["-r", r"test_\d+"]
+        assert search[-3:] == ["-r", r"test_\d+", "content:x"]
+
+    @pytest.mark.asyncio
+    async def test_regex_token_with_or_is_guarded(self, backend):
+        with (
+            patch.object(backend, "_run", new_callable=AsyncMock) as mock_run,
+            pytest.raises(RuntimeError, match="content: cannot be combined"),
+        ):
+            await backend.search("regex:x|content:y")
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unknown_candidate_count_refused(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (f"{2**64 - 1}\n", "", 0)
+            with pytest.raises(RuntimeError, match="could not count"):
+                await backend.search("ext:py dc:today")
+
+    @pytest.mark.asyncio
+    async def test_too_many_candidates_refused(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("5000\n", "", 0)
+            with pytest.raises(
+                RuntimeError, match=r"matches 5,000 items; the limit for content: is 1,000"
+            ):
+                await backend.search("ext:py content:TODO")
+        assert len(_es_calls(mock_run)) == 1  # only the cheap count ran
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "content:TODO",
+            "dc:today",
+            "width:>100",
+            "artist:abba",
+            '"content":TODO',
+            'con""tent:TODO',
+        ],
+    )
+    async def test_unscoped_disk_term_refused_without_touching_everything(self, backend, query):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            with pytest.raises(RuntimeError, match="needs a narrowing filter"):
+                await backend.search(query)
+            with pytest.raises(RuntimeError, match="needs a narrowing filter"):
+                await backend.count(query)
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_or_groups_with_disk_term_refused(self, backend):
+        with (
+            patch.object(backend, "_run", new_callable=AsyncMock) as mock_run,
+            pytest.raises(RuntimeError, match="cannot be combined"),
+        ):
+            await backend.search("ext:py content:a | b.txt")
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "query",
+        [r"ext:md path:D:\content", r"regex:^content_\d+$", "ext:py dm:today", "ext:log size:>1mb"],
+    )
+    async def test_index_served_queries_run_directly(self, backend, query):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search(query)
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_indexed_date_created_runs_directly(self, backend):
+        backend.config.indexed["index_date_created"] = True
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search("dc:today")
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_plain_regex_argument_not_guarded(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search(r"^test_\d+\.py$", match_regex=True)
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("query", "regex"),
+        [("regex:content:secret", False), ("case:regex:artist:x", False), ("content:x", True)],
+    )
+    async def test_function_after_regex_modifier_is_guarded(self, backend, query, regex):
+        """es.exe -r sends "regex:" + the argument: regex:content:x is a content search."""
+        with (
+            patch.object(backend, "_run", new_callable=AsyncMock) as mock_run,
+            pytest.raises(RuntimeError, match="needs a narrowing filter"),
+        ):
+            await backend.search(query, match_regex=regex)
+        mock_run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_byte_budget_applies_when_another_slow_term_comes_first(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [("10\n", "", 0), (f"{50 * 1024**3}\n", "", 0)]
+            with pytest.raises(RuntimeError, match=r"the limit for content: is 100\.0 MB"):
+                await backend.search(r"ext:jpg path:C:\x width:>100 content:foo")
+
+    @pytest.mark.asyncio
+    async def test_everything_15_not_guarded(self, config_15a):
+        backend = EverythingBackend(config_15a)
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            await backend.search("content:TODO")
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_date_created_sort_refused_unless_indexed(self, backend):
+        with patch.object(backend, "_run", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = ("", "", 0)
+            with pytest.raises(RuntimeError, match="Index date created"):
+                await backend.search("ext:py", sort="date-created-desc")
+            mock_run.assert_not_called()
+            backend.config.indexed["index_date_created"] = True
+            await backend.search("ext:py", sort="date-created-desc")
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_size_sort_refused_when_size_not_indexed(self, backend):
+        backend.config.indexed["index_size"] = False
+        with pytest.raises(RuntimeError, match="Index size"):
+            await backend.search("ext:py", sort="size-desc")
 
 
 # ── SORT_MAP / FILE_TYPES / TIME_PERIODS consistency ─────────────────────
