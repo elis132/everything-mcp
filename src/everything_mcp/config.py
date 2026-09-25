@@ -405,7 +405,9 @@ def _read_index_settings(instance: str, es_path: str) -> dict[str, bool]:
             exe_dirs.append(Path(program_files) / f"Everything {instance}")
 
     candidates = [d / name for d in exe_dirs if _read_ini(d / name).get("app_data") == "0"]
-    candidates.append(Path(os.path.expandvars(r"%APPDATA%\Everything")) / name)
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidates.append(Path(appdata) / "Everything" / name)
 
     for ini in candidates:
         values = _read_ini(ini)
