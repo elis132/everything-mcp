@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -49,15 +50,18 @@ logger = logging.getLogger("everything_mcp")
 
 _backend: EverythingBackend | None = None
 _config: EverythingConfig | None = None
+_last_detect = 0.0
+_REDETECT_INTERVAL = 10.0
 
 
 @asynccontextmanager
 async def lifespan(server):
     """Initialise Everything backend on startup, cleanup on shutdown."""
-    global _backend, _config
+    global _backend, _config, _last_detect
 
     logger.info("Everything MCP starting - auto-detecting Everything installation…")
     _config = EverythingConfig.auto_detect()
+    _last_detect = time.monotonic()
 
     if _config.is_valid:
         logger.info("Connected: %s  (es: %s)", _config.version_info, _config.es_path)
@@ -79,14 +83,45 @@ async def lifespan(server):
 mcp = FastMCP("everything_mcp", lifespan=lifespan)
 
 
-def _get_backend() -> EverythingBackend:
-    """Return the backend or raise with a clear message."""
+_SORT_DESCRIPTION = (
+    "Sort order. Options: "
+    + ", ".join(sorted(SORT_MAP.keys()))
+    + ". Default: date-modified-desc (name if Everything does not index date modified)."
+)
+
+
+def _validate_sort(v: str | None) -> str | None:
+    if v is not None and v not in SORT_MAP:
+        raise ValueError(f"Invalid sort option '{v}'. Valid: {', '.join(sorted(SORT_MAP.keys()))}")
+    return v
+
+
+async def _get_backend() -> EverythingBackend:
+    """Return the backend or raise with a clear message.
+
+    If Everything was stopped or busy at startup, detection is retried (at
+    most every ``_REDETECT_INTERVAL`` seconds) instead of leaving the server
+    broken until the MCP client restarts it.
+    """
+    global _backend, _config, _last_detect
     if _backend is None:
         raise RuntimeError("Everything MCP not initialised")
-    if not _config or not _config.is_valid:
-        errors = _config.errors if _config else ["Not initialised"]
-        raise RuntimeError("Everything is not available. " + " ".join(errors))
-    return _backend
+    if _config and _config.is_valid:
+        return _backend
+
+    if _config is not None and time.monotonic() - _last_detect >= _REDETECT_INTERVAL:
+        _last_detect = time.monotonic()
+        config = await asyncio.to_thread(EverythingConfig.auto_detect)
+        if config.is_valid:
+            logger.info("Connected: %s  (es: %s)", config.version_info, config.es_path)
+            _config, _backend = config, EverythingBackend(config)
+            return _backend
+        logger.warning("Re-detection failed: %s", " ".join(config.errors))
+        # Safe to replace: a backend with an invalid config never ran es.exe.
+        _config, _backend = config, EverythingBackend(config)
+
+    errors = _config.errors if _config else ["Not initialised"]
+    raise RuntimeError("Everything is not available. " + " ".join(errors))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -107,10 +142,12 @@ class SearchInput(BaseModel):
             "'ext:py;js path:C:\\Projects' (Python/JS in Projects), "
             "'size:>10mb ext:log' (large logs), "
             "'dm:today ext:py' (Python files modified today), "
-            "'content:TODO ext:py' (files containing TODO - requires content indexing), "
             "'\"exact phrase\"' (exact filename match), "
             "'regex:test_\\d+\\.py$' (regex). "
-            "Combine with space (AND) or | (OR). Prefix ! to exclude."
+            "Combine with space (AND) or | (OR). Prefix ! to exclude. "
+            "Functions that read files from disk (content:, width:, height:, "
+            "music tags, and dc:/da:/attrib: unless indexed) need a path:/ext: "
+            "filter and only run on small candidate sets."
         ),
         min_length=1,
         max_length=2000,
@@ -121,19 +158,12 @@ class SearchInput(BaseModel):
         ge=1,
         le=500,
     )
-    sort: str = Field(
-        default="date-modified-desc",
-        description=("Sort order. Options: " + ", ".join(sorted(SORT_MAP.keys()))),
-    )
+    sort: str | None = Field(default=None, description=_SORT_DESCRIPTION)
 
     @field_validator("sort")
     @classmethod
-    def validate_sort(cls, v: str) -> str:
-        if v not in SORT_MAP:
-            raise ValueError(
-                f"Invalid sort option '{v}'. Valid: {', '.join(sorted(SORT_MAP.keys()))}"
-            )
-        return v
+    def validate_sort(cls, v: str | None) -> str | None:
+        return _validate_sort(v)
 
     match_case: bool = Field(default=False, description="Case-sensitive search")
     match_whole_word: bool = Field(default=False, description="Match whole words only")
@@ -159,14 +189,14 @@ async def everything_search(params: SearchInput) -> str:
 
     Leverages Everything's real-time NTFS index for sub-millisecond search
     across all local and mapped drives.  Supports wildcards, regex, size/date
-    filters, extension filters, path restrictions, and content search.
+    filters, extension filters, and path restrictions.
     """
     try:
-        backend = _get_backend()
+        backend = await _get_backend()
         results = await backend.search(
             query=params.query,
             max_results=params.max_results,
-            sort=params.sort,
+            sort=params.sort or backend.default_sort(),
             match_case=params.match_case,
             match_whole_word=params.match_whole_word,
             match_regex=params.match_regex,
@@ -201,16 +231,12 @@ class SearchByTypeInput(BaseModel):
         description="Restrict search to this directory (e.g. 'C:\\Projects')",
     )
     max_results: int = Field(default=50, ge=1, le=500)
-    sort: str = Field(default="date-modified-desc")
+    sort: str | None = Field(default=None, description=_SORT_DESCRIPTION)
 
     @field_validator("sort")
     @classmethod
-    def validate_sort(cls, v: str) -> str:
-        if v not in SORT_MAP:
-            raise ValueError(
-                f"Invalid sort option '{v}'. Valid: {', '.join(sorted(SORT_MAP.keys()))}"
-            )
-        return v
+    def validate_sort(cls, v: str | None) -> str | None:
+        return _validate_sort(v)
 
 
 @mcp.tool(
@@ -230,12 +256,12 @@ async def everything_search_by_type(params: SearchByTypeInput) -> str:
     font, 3d, data.  Each maps to a curated list of file extensions.
     """
     try:
-        backend = _get_backend()
+        backend = await _get_backend()
         query = build_type_query(params.file_type, params.query, params.path)
         results = await backend.search(
             query=query,
             max_results=params.max_results,
-            sort=params.sort,
+            sort=params.sort or backend.default_sort(),
         )
         label = f"type:{params.file_type}" + (f" {params.query}" if params.query else "")
         return _format_search_results(results, label, params.max_results)
@@ -289,7 +315,7 @@ async def everything_find_recent(params: FindRecentInput) -> str:
     downloads, finding today's log files, etc.  Sorted newest-first.
     """
     try:
-        backend = _get_backend()
+        backend = await _get_backend()
 
         query = build_recent_query(params.period, params.path, params.extensions)
         if params.query:
@@ -298,7 +324,7 @@ async def everything_find_recent(params: FindRecentInput) -> str:
         results = await backend.search(
             query=query,
             max_results=params.max_results,
-            sort="date-modified-desc",
+            sort=backend.default_sort(),
         )
         return _format_search_results(results, f"recent ({params.period})", params.max_results)
     except Exception as exc:
@@ -463,31 +489,24 @@ async def everything_count_stats(params: CountStatsInput) -> str:
     Optionally breaks down by extension for a high-level overview.
     """
     try:
-        backend = _get_backend()
+        backend = await _get_backend()
         output: dict = {"query": params.query}
 
-        # Count
-        try:
-            total_count = await backend.count(params.query)
-            if total_count >= 0:
-                output["total_count"] = total_count
-            else:
-                output["count_note"] = (
-                    "Count not available (es.exe may not support -get-result-count)"
-                )
-        except Exception:
+        # Count.  Failures (busy, timeout, refused query) end the call: sending
+        # the size query to a busy Everything would only queue behind it.
+        total_count = await backend.count(params.query)
+        if total_count >= 0:
+            output["total_count"] = total_count
+        else:
             output["count_note"] = "Count not available (es.exe may not support -get-result-count)"
 
         # Total size
         if params.include_size:
-            try:
-                total_size = await backend.get_total_size(params.query)
-                if total_size >= 0:
-                    output["total_size"] = total_size
-                    output["total_size_human"] = human_size(total_size)
-                else:
-                    output["size_note"] = "Total size not available"
-            except Exception:
+            total_size = await backend.get_total_size(params.query)
+            if total_size >= 0:
+                output["total_size"] = total_size
+                output["total_size_human"] = human_size(total_size)
+            else:
                 output["size_note"] = "Total size not available"
 
         # Extension breakdown
@@ -540,11 +559,13 @@ async def everything_count_stats(params: CountStatsInput) -> str:
 @mcp.resource("everything://status")
 async def get_status() -> str:
     """Get the current status of the Everything connection."""
-    if _backend:
-        status = await _backend.health_check()
-    else:
-        status = {"status": "not initialised"}
-    return json.dumps(status, indent=2)
+    if _backend is None:
+        return json.dumps({"status": "not initialised"}, indent=2)
+    try:
+        backend = await _get_backend()  # re-detects if Everything was unavailable
+    except RuntimeError:
+        backend = _backend
+    return json.dumps(await backend.health_check(), indent=2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

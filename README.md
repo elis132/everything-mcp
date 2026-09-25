@@ -174,7 +174,7 @@ Everything MCP auto-detects your setup, but you can override:
 |---|---|---|
 | `query` | *(required)* | Everything search query |
 | `max_results` | 50 | 1-500 |
-| `sort` | `date-modified-desc` | name, path, size, date-modified, date-created, extension (+ `-desc` variants) |
+| `sort` | `date-modified-desc` | name, path, size, date-modified, date-created, extension (+ `-desc` variants). date-created needs 'Index date created' in Everything |
 | `match_case` / `match_whole_word` / `match_regex` / `match_path` | false | Match modifiers |
 | `offset` | 0 | Pagination offset |
 
@@ -186,16 +186,24 @@ ext:py;js;ts                  multiple extensions
 ext:py path:C:\Projects       Python files under a path
 size:>10mb                    larger than 10 MB
 size:1kb..1mb                 between 1 KB and 1 MB
-dm:today / dm:last1week       modified today / in the last week
-dc:2024                       created in 2024
+dm:today / dm:last7days       modified today / in the last 7 days
+path:D:\Photos dc:2024        created in 2024 (slow function, see below)
 "exact name.txt"              exact filename match
 project1 | project2           OR search
 !node_modules                 exclude a term
-content:TODO                  files containing TODO (needs content indexing)
+ext:py path:C:\proj content:TODO   files containing TODO (slow function, see below)
 regex:^test_.*\.py$           regex search
 parent:src ext:py             files directly inside 'src' folders
 dupe:  /  empty:               duplicate filenames / empty folders
 ```
+
+**Slow functions.** `content:`, `width:`/`height:`, music tags (`artist:`, `album:`, ...) and, unless
+their property is indexed (Everything > Tools > Options > Indexes), `dc:`, `da:` and `attrib:` (and
+`dm:`/`size:` if you turned their indexing off) make Everything read every candidate file from disk -
+and Everything answers no other search until it is done. On Everything 1.4 the server therefore runs
+these terms last and only when the rest of the query narrows the candidates enough (1,000 files and
+100 MB for `content:`; 1,000 files for image and tag functions; 30,000 for dates, attributes and
+sizes). Otherwise it refuses and reports the candidate count, so add `path:`, `ext:` or a name.
 
 ### 2. `everything_search_by_type` - category search
 

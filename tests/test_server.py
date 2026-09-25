@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -288,6 +289,111 @@ class TestToolErrorHandling:
         finally:
             server._backend = old_backend
             server._config = old_config
+
+    @pytest.mark.asyncio
+    async def test_count_stats_stops_at_first_failure(self, monkeypatch):
+        """A busy/refused count is reported as is, and no size query follows it (#18)."""
+        from everything_mcp import server
+        from everything_mcp.config import EverythingConfig
+        from everything_mcp.server import CountStatsInput, everything_count_stats
+
+        class BusyBackend:
+            size_called = False
+
+            async def count(self, query: str) -> int:
+                raise RuntimeError("Everything is still running an earlier query")
+
+            async def get_total_size(self, query: str) -> int:
+                BusyBackend.size_called = True
+                return 0
+
+        monkeypatch.setattr(server, "_backend", BusyBackend())
+        monkeypatch.setattr(server, "_config", EverythingConfig(es_path=r"C:\es.exe"))
+        result = await everything_count_stats(CountStatsInput(query="ext:py"))
+        assert result == "Error: Everything is still running an earlier query"
+        assert not BusyBackend.size_called
+
+
+class TestDefaultSort:
+    @pytest.mark.asyncio
+    async def test_find_recent_sorts_by_name_when_date_modified_not_indexed(self, monkeypatch):
+        """An unindexed sort would be refused; find_recent must still work (#18 review)."""
+        from everything_mcp import server
+        from everything_mcp.backend import EverythingBackend
+        from everything_mcp.config import EverythingConfig
+        from everything_mcp.server import FindRecentInput, everything_find_recent
+
+        config = EverythingConfig(es_path=r"C:\es.exe", version_info="Everything v1.4.1.1032")
+        config.indexed["index_date_modified"] = False
+        backend = EverythingBackend(config)
+        seen = {}
+
+        async def fake_search(query, max_results, sort):
+            seen["sort"] = sort
+            return []
+
+        monkeypatch.setattr(backend, "search", fake_search)
+        monkeypatch.setattr(server, "_config", config)
+        monkeypatch.setattr(server, "_backend", backend)
+        await everything_find_recent(FindRecentInput(period="today", path=r"C:\x"))
+        assert seen["sort"] == "name"
+
+    @pytest.mark.asyncio
+    async def test_status_reports_busy_when_detection_saw_another_session(self, monkeypatch):
+        from everything_mcp import server
+        from everything_mcp.backend import EverythingBackend
+        from everything_mcp.config import BUSY_OTHER_SESSION, EverythingConfig
+
+        config = EverythingConfig(errors=[BUSY_OTHER_SESSION])
+        monkeypatch.setattr(server, "_config", config)
+        monkeypatch.setattr(server, "_backend", EverythingBackend(config))
+        monkeypatch.setattr(server, "_last_detect", time.monotonic())  # no re-detect now
+        status = json.loads(await server.get_status())
+        assert status["status"] == "busy"
+
+
+class TestRedetect:
+    """Everything stopped or busy at startup must not break the server for good (#18)."""
+
+    @pytest.mark.asyncio
+    async def test_reconnects_once_everything_answers(self, monkeypatch):
+        from everything_mcp import server
+        from everything_mcp.backend import EverythingBackend
+        from everything_mcp.config import EverythingConfig
+
+        broken = EverythingConfig(es_path=r"C:\es.exe", errors=["Cannot connect to Everything"])
+        healthy = EverythingConfig(es_path=r"C:\es.exe", version_info="Everything v1.4.1.1032")
+        monkeypatch.setattr(server, "_config", broken)
+        monkeypatch.setattr(server, "_backend", EverythingBackend(broken))
+        monkeypatch.setattr(server, "_last_detect", 0.0)
+        monkeypatch.setattr(EverythingConfig, "auto_detect", classmethod(lambda cls: healthy))
+
+        backend = await server._get_backend()
+        assert backend.config is healthy
+        assert server._config is healthy
+
+    @pytest.mark.asyncio
+    async def test_redetection_is_rate_limited(self, monkeypatch):
+        from everything_mcp import server
+        from everything_mcp.backend import EverythingBackend
+        from everything_mcp.config import EverythingConfig
+
+        broken = EverythingConfig(es_path=r"C:\es.exe", errors=["Cannot connect to Everything"])
+        calls = []
+
+        def detect(cls):
+            calls.append(1)
+            return broken
+
+        monkeypatch.setattr(server, "_config", broken)
+        monkeypatch.setattr(server, "_backend", EverythingBackend(broken))
+        monkeypatch.setattr(server, "_last_detect", 0.0)
+        monkeypatch.setattr(EverythingConfig, "auto_detect", classmethod(detect))
+
+        for _ in range(3):
+            with pytest.raises(RuntimeError, match="Cannot connect"):
+                await server._get_backend()
+        assert len(calls) == 1
 
 
 # ── MCP SDK registration (mcp 1.x / 2.x compat) ──────────────────────────
