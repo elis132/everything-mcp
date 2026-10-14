@@ -280,7 +280,7 @@ class LocalIndex:
                     prior = self._writer.execute(
                         "SELECT scanned FROM roots WHERE root=?", (root,)
                     ).fetchone()
-                if prior and prior[0] is not None and prior[0] >= requested_at:
+                if prior and prior[0] is not None and prior[0] > requested_at:
                     continue  # Another client reconciled this root while we waited.
                 if not performed:
                     self._scan_count += 1

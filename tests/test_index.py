@@ -481,6 +481,39 @@ async def test_second_concurrent_client_reuses_completed_reconciliation(tmp_path
     await asyncio.gather(one.close(), two.close())
 
 
+async def test_equal_scan_timestamp_does_not_skip_reconciliation(tmp_path, monkeypatch):
+    import everything_mcp.index as module
+
+    root = tmp_path / "root"
+    root.mkdir()
+    one = LocalIndex(tmp_path / "shared.sqlite", [root])
+    two = LocalIndex(tmp_path / "shared.sqlite", [root])
+    one._writer.execute(
+        "INSERT INTO roots(root,generation,scanned) VALUES(?,?,?)",
+        (one.roots[0], "prior", 42.0),
+    )
+    one._writer.commit()
+    monkeypatch.setattr(
+        module,
+        "time",
+        SimpleNamespace(time=lambda: 42.0, monotonic=time.monotonic),
+    )
+    walked = threading.Event()
+    original_walk = two._walk
+
+    def observed(*args):
+        walked.set()
+        yield from original_walk(*args)
+
+    monkeypatch.setattr(two, "_walk", observed)
+    try:
+        two.rescan()
+        assert walked.is_set()
+        assert two.status()["scan_count"] == 1
+    finally:
+        await asyncio.gather(one.close(), two.close())
+
+
 def test_metadata_change_time_is_not_mislabeled_as_linux_creation_time():
     metadata = SimpleNamespace(st_ctime=12345)
     assert _creation_time(metadata, windows=False) == 0
