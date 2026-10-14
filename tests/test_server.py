@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import json
-import time
 
 import pytest
 
-from everything_mcp.backend import SearchResult
 from everything_mcp.server import (
     _TEXT_EXTENSIONS,
     _TEXT_FILENAMES,
     _format_search_results,
-    _get_file_details_sync,
     _read_preview,
 )
 
@@ -190,245 +187,199 @@ class TestSortValidation:
 # ── Tool error handling ───────────────────────────────────────────────────
 
 
-class TestToolSuccessPaths:
-    def test_file_details_directory_summary(self, tmp_path):
-        (tmp_path / "sub").mkdir()
-        (tmp_path / "a.txt").write_text("alpha")
-        (tmp_path / "b.py").write_text("print('ok')\n")
+async def test_all_six_tools_registered_read_only():
+    from everything_mcp.server import mcp
 
-        result = _get_file_details_sync([str(tmp_path)], preview_lines=0)
-        data = json.loads(result)
-
-        assert data["type"] == "folder"
-        assert data["item_count"] >= 3
-        assert isinstance(data["subdirectories"], list)
-        assert isinstance(data["files_sample"], list)
-
-    @pytest.mark.asyncio
-    async def test_count_stats_breakdown_excludes_directories(self):
-        from everything_mcp import server
-        from everything_mcp.config import EverythingConfig
-        from everything_mcp.server import CountStatsInput, everything_count_stats
-
-        class FakeBackend:
-            async def count(self, query: str) -> int:
-                return 3
-
-            async def get_total_size(self, query: str) -> int:
-                return 1300
-
-            async def search(self, query: str, max_results: int, sort: str):
-                return [
-                    SearchResult(path=r"C:\repo\a.py", name="a.py", size=1200, extension="py"),
-                    SearchResult(path=r"C:\repo\README", name="README", size=100, extension=""),
-                    SearchResult(path=r"C:\repo\src", name="src", is_dir=True),
-                ]
-
-        old_backend = server._backend
-        old_config = server._config
-        try:
-            server._backend = FakeBackend()
-            server._config = EverythingConfig(es_path=r"C:\Program Files\Everything\es.exe")
-
-            result = await everything_count_stats(
-                CountStatsInput(query="path:C:\\repo", breakdown_by_extension=True)
-            )
-            data = json.loads(result)
-
-            assert data["total_count"] == 3
-            assert data["total_size"] == 1300
-            assert "py" in data["extension_breakdown"]
-            assert "(no extension)" in data["extension_breakdown"]
-            assert "directories excluded" in data["breakdown_note"]
-        finally:
-            server._backend = old_backend
-            server._config = old_config
+    tools = await mcp.list_tools()
+    assert {t.name for t in tools} == {
+        "everything_search",
+        "everything_search_by_type",
+        "everything_find_recent",
+        "everything_file_details",
+        "everything_count_stats",
+        "everything_index_status",
+    }
+    for tool in tools:
+        annotations = tool.annotations.model_dump(by_alias=True, exclude_none=True)
+        assert annotations["readOnlyHint"] is True and annotations["destructiveHint"] is False
+        assert "es.exe" not in tool.description and "sub-millisecond" not in tool.description
 
 
-class TestToolErrorHandling:
-    """Verify that tools return error strings rather than raising."""
+@pytest.fixture
+async def tool_backend(backend, monkeypatch):
+    from everything_mcp import server
 
-    @pytest.mark.asyncio
-    async def test_search_returns_error_string(self):
-        """When backend is unavailable, search returns an error string."""
-        from everything_mcp import server
-
-        # Temporarily set invalid state
-        old_backend = server._backend
-        old_config = server._config
-        try:
-            server._backend = None
-            server._config = None
-
-            from everything_mcp.server import SearchInput, everything_search
-
-            params = SearchInput(query="*.py")
-            result = await everything_search(params)
-            assert isinstance(result, str)
-            assert "Error" in result
-        finally:
-            server._backend = old_backend
-            server._config = old_config
-
-    @pytest.mark.asyncio
-    async def test_count_stats_returns_error_string(self):
-        from everything_mcp import server
-
-        old_backend = server._backend
-        old_config = server._config
-        try:
-            server._backend = None
-            server._config = None
-
-            from everything_mcp.server import CountStatsInput, everything_count_stats
-
-            params = CountStatsInput(query="*.py")
-            result = await everything_count_stats(params)
-            assert isinstance(result, str)
-            assert "Error" in result
-        finally:
-            server._backend = old_backend
-            server._config = old_config
-
-    @pytest.mark.asyncio
-    async def test_count_stats_stops_at_first_failure(self, monkeypatch):
-        """A busy/refused count is reported as is, and no size query follows it (#18)."""
-        from everything_mcp import server
-        from everything_mcp.config import EverythingConfig
-        from everything_mcp.server import CountStatsInput, everything_count_stats
-
-        class BusyBackend:
-            size_called = False
-
-            async def count(self, query: str) -> int:
-                raise RuntimeError("Everything is still running an earlier query")
-
-            async def get_total_size(self, query: str) -> int:
-                BusyBackend.size_called = True
-                return 0
-
-        monkeypatch.setattr(server, "_backend", BusyBackend())
-        monkeypatch.setattr(server, "_config", EverythingConfig(es_path=r"C:\es.exe"))
-        result = await everything_count_stats(CountStatsInput(query="ext:py"))
-        assert result == "Error: Everything is still running an earlier query"
-        assert not BusyBackend.size_called
+    monkeypatch.setattr(server, "_backend", backend)
+    monkeypatch.setattr(server, "_config", backend.config)
+    return backend
 
 
-class TestDefaultSort:
-    @pytest.mark.asyncio
-    async def test_find_recent_sorts_by_name_when_date_modified_not_indexed(self, monkeypatch):
-        """An unindexed sort would be refused; find_recent must still work (#18 review)."""
-        from everything_mcp import server
-        from everything_mcp.backend import EverythingBackend
-        from everything_mcp.config import EverythingConfig
-        from everything_mcp.server import FindRecentInput, everything_find_recent
+async def test_tools_use_real_independent_index(tool_backend, valid_config):
+    from everything_mcp import server
 
-        config = EverythingConfig(es_path=r"C:\es.exe", version_info="Everything v1.4.1.1032")
-        config.indexed["index_date_modified"] = False
-        backend = EverythingBackend(config)
-        seen = {}
-
-        async def fake_search(query, max_results, sort):
-            seen["sort"] = sort
-            return []
-
-        monkeypatch.setattr(backend, "search", fake_search)
-        monkeypatch.setattr(server, "_config", config)
-        monkeypatch.setattr(server, "_backend", backend)
-        await everything_find_recent(FindRecentInput(period="today", path=r"C:\x"))
-        assert seen["sort"] == "name"
-
-    @pytest.mark.asyncio
-    async def test_status_reports_busy_when_detection_saw_another_session(self, monkeypatch):
-        from everything_mcp import server
-        from everything_mcp.backend import EverythingBackend
-        from everything_mcp.config import BUSY_OTHER_SESSION, EverythingConfig
-
-        config = EverythingConfig(errors=[BUSY_OTHER_SESSION])
-        monkeypatch.setattr(server, "_config", config)
-        monkeypatch.setattr(server, "_backend", EverythingBackend(config))
-        monkeypatch.setattr(server, "_last_detect", time.monotonic())  # no re-detect now
-        status = json.loads(await server.get_status())
-        assert status["status"] == "busy"
+    output = await server.everything_search(server.SearchInput(query="ext:py"))
+    assert "main.py" in output and "Found 1 results" in output
+    category = await server.everything_search_by_type(server.SearchByTypeInput(file_type="image"))
+    assert "photo.jpg" in category and "main.py" not in category
+    recent = await server.everything_find_recent(
+        server.FindRecentInput(period="today", extensions="py")
+    )
+    assert "main.py" in recent
+    stats = json.loads(
+        await server.everything_count_stats(
+            server.CountStatsInput(query="file:", breakdown_by_extension=True)
+        )
+    )
+    assert stats["total_count"] == 3 and stats["total_size"] > 0
+    assert stats["extension_breakdown"]["py"]["count"] == 1
+    status = json.loads(await server.everything_index_status())
+    assert status["independent"] and status["state"] == "ready"
+    assert status["roots"] == [str(valid_config.roots[0])]
 
 
-class TestRedetect:
-    """Everything stopped or busy at startup must not break the server for good (#18)."""
+async def test_cached_search_reports_reconciliation(tool_backend, monkeypatch):
+    from everything_mcp import server
 
-    @pytest.mark.asyncio
-    async def test_reconnects_once_everything_answers(self, monkeypatch):
-        from everything_mcp import server
-        from everything_mcp.backend import EverythingBackend
-        from everything_mcp.config import EverythingConfig
-
-        broken = EverythingConfig(es_path=r"C:\es.exe", errors=["Cannot connect to Everything"])
-        healthy = EverythingConfig(es_path=r"C:\es.exe", version_info="Everything v1.4.1.1032")
-        monkeypatch.setattr(server, "_config", broken)
-        monkeypatch.setattr(server, "_backend", EverythingBackend(broken))
-        monkeypatch.setattr(server, "_last_detect", 0.0)
-        monkeypatch.setattr(EverythingConfig, "auto_detect", classmethod(lambda cls: healthy))
-
-        backend = await server._get_backend()
-        assert backend.config is healthy
-        assert server._config is healthy
-
-    @pytest.mark.asyncio
-    async def test_redetection_is_rate_limited(self, monkeypatch):
-        from everything_mcp import server
-        from everything_mcp.backend import EverythingBackend
-        from everything_mcp.config import EverythingConfig
-
-        broken = EverythingConfig(es_path=r"C:\es.exe", errors=["Cannot connect to Everything"])
-        calls = []
-
-        def detect(cls):
-            calls.append(1)
-            return broken
-
-        monkeypatch.setattr(server, "_config", broken)
-        monkeypatch.setattr(server, "_backend", EverythingBackend(broken))
-        monkeypatch.setattr(server, "_last_detect", 0.0)
-        monkeypatch.setattr(EverythingConfig, "auto_detect", classmethod(detect))
-
-        for _ in range(3):
-            with pytest.raises(RuntimeError, match="Cannot connect"):
-                await server._get_backend()
-        assert len(calls) == 1
+    status = tool_backend.index.status()
+    monkeypatch.setattr(tool_backend.index, "status", lambda: {**status, "state": "building"})
+    output = await server.everything_search(server.SearchInput(query="main"))
+    assert "main.py" in output and "partial" in output and "searchable" in output
 
 
-# ── MCP SDK registration (mcp 1.x / 2.x compat) ──────────────────────────
+async def test_search_and_stats_report_incomplete_index_coverage(tool_backend, monkeypatch):
+    from everything_mcp import server
+
+    status = tool_backend.index.status()
+    note = "Some paths were unavailable; cached entries under them were retained."
+    monkeypatch.setattr(
+        tool_backend.index,
+        "status",
+        lambda: {**status, "state": "ready", "partial": True, "coverage_note": note},
+    )
+    search = await server.everything_search(server.SearchInput(query="main"))
+    stats = json.loads(await server.everything_count_stats(server.CountStatsInput(query="main")))
+
+    assert "Index coverage is incomplete" in search and note in search
+    assert "cached statistics may be stale" in stats["freshness_note"]
 
 
-class TestSdkToolRegistration:
-    """Guards the mcp 1.x/2.x compat import in ``server.py``.
+async def test_bounded_search_labels_partial_ordering(tool_backend, monkeypatch):
+    from everything_mcp import server
+    from everything_mcp.query import QueryError
 
-    mcp 2.0 renamed ``FastMCP`` to ``MCPServer`` and moved it out of
-    ``mcp.server.fastmcp``, which crashed every fresh install on startup
-    (#13). These assertions go through the real SDK, so a future rename
-    fails here instead of in users' clients.
-    """
+    def timed_out(*args, **kwargs):
+        raise QueryError("Query exceeded its time limit")
 
-    @pytest.mark.asyncio
-    async def test_all_tools_registered_with_sdk(self):
-        from everything_mcp.server import mcp
+    monkeypatch.setattr(tool_backend.index, "_execute", timed_out)
+    output = await server.everything_search(server.SearchInput(query="main"))
+    assert "main.py" in output
+    assert "bounded subset" in output and "Ordering and pagination" in output
 
-        names = {tool.name for tool in await mcp.list_tools()}
-        assert names == {
-            "everything_search",
-            "everything_search_by_type",
-            "everything_find_recent",
-            "everything_file_details",
-            "everything_count_stats",
-        }
 
-    @pytest.mark.asyncio
-    async def test_tools_carry_read_only_annotations(self):
-        """Asserts the serialized form: mcp 1.x exposes camelCase attributes and
-        2.x snake_case, but both serialize to the same camelCase wire keys."""
-        from everything_mcp.server import mcp
+@pytest.mark.parametrize("diagnostic", ["", "Filesystem watching unavailable: root removed"])
+async def test_cached_search_labels_degraded_watching(tool_backend, monkeypatch, diagnostic):
+    from everything_mcp import server
 
-        for tool in await mcp.list_tools():
-            assert tool.annotations is not None, f"{tool.name} lost its annotations"
-            annotations = tool.annotations.model_dump(by_alias=True, exclude_none=True)
-            assert annotations["readOnlyHint"] is True
-            assert annotations["destructiveHint"] is False
+    status = tool_backend.index.status()
+    monkeypatch.setattr(
+        tool_backend.index,
+        "status",
+        lambda: {**status, "state": "ready", "watching": False, "last_error": diagnostic},
+    )
+    output = await server.everything_search(server.SearchInput(query="main"))
+    assert "main.py" in output and "cached results may be stale" in output
+    assert diagnostic in output if diagnostic else "watching is unavailable" in output
+    stats = json.loads(await server.everything_count_stats(server.CountStatsInput(query="main")))
+    assert "cached statistics may be stale" in stats["freshness_note"]
+
+
+def test_fifo_preview_never_opens_special_file(tmp_path, monkeypatch):
+    import os
+
+    from everything_mcp import server
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO creation requires POSIX")
+    pipe = tmp_path / "pipe.txt"
+    os.mkfifo(pipe)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Preview must reject FIFO before opening it")
+
+    monkeypatch.setattr(server, "open", forbidden, raising=False)
+    assert server._read_preview(pipe, 5) is None
+
+
+async def test_tool_error_is_clean(tool_backend, monkeypatch):
+    from everything_mcp import server
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError("deliberate query failure")
+
+    monkeypatch.setattr(tool_backend, "search", fail)
+    result = await server.everything_search(server.SearchInput(query="main"))
+    assert result == "Error: deliberate query failure"
+
+
+async def test_count_failure_stops_more_queries(tool_backend, monkeypatch):
+    from everything_mcp import server
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError("deliberate count failure")
+
+    async def must_not_run(*args, **kwargs):
+        raise AssertionError("Size must not follow count failure")
+
+    monkeypatch.setattr(tool_backend, "count", fail)
+    monkeypatch.setattr(tool_backend, "get_total_size", must_not_run)
+    output = await server.everything_count_stats(server.CountStatsInput(query="file:"))
+    assert output == "Error: deliberate count failure"
+
+
+async def test_details_preview_and_directory_summary(tmp_path):
+    from everything_mcp import server
+
+    file = tmp_path / "example.py"
+    file.write_text("first\nsecond\n", encoding="utf-8")
+    details = json.loads(
+        await server.everything_file_details(
+            server.FileDetailsInput(paths=[str(file)], preview_lines=1)
+        )
+    )
+    assert details["preview"] == "first" and details["size"] > 0
+    summary = json.loads(
+        await server.everything_file_details(server.FileDetailsInput(paths=[str(tmp_path)]))
+    )
+    assert summary["item_count"] == 1 and summary["files_sample"] == ["example.py"]
+
+
+async def test_lifespan_builds_and_closes_own_index(tmp_path, monkeypatch):
+    from everything_mcp import server
+
+    root = tmp_path / "files"
+    root.mkdir()
+    (root / "hello.txt").write_text("hello", encoding="utf-8")
+    monkeypatch.setenv("EVERYTHING_MCP_ROOTS", json.dumps([str(root)]))
+    monkeypatch.setenv("EVERYTHING_MCP_DB", str(tmp_path / "index.db"))
+    async with server.lifespan(None):
+        backend = server._backend
+        await backend.wait_ready(15)
+        assert "hello.txt" in await server.everything_search(server.SearchInput(query="hello"))
+    assert server._backend is None and backend.index is None
+
+
+async def test_lifespan_start_failure_remains_diagnosable(tmp_path, monkeypatch):
+    from everything_mcp import server
+
+    monkeypatch.setenv("EVERYTHING_MCP_ROOTS", json.dumps([str(tmp_path)]))
+    monkeypatch.setenv("EVERYTHING_MCP_DB", str(tmp_path / "index.db"))
+
+    async def denied(self):
+        raise OSError("database write denied")
+
+    monkeypatch.setattr(server.EverythingBackend, "start", denied)
+    async with server.lifespan(None):
+        status = json.loads(await server.everything_index_status())
+        assert status["state"] == "error" and "database write denied" in status["errors"][0]
+        output = await server.everything_search(server.SearchInput(query="file:"))
+        assert output.startswith("Error:") and "database write denied" in output

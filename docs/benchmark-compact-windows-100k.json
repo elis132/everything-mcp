@@ -1,0 +1,173 @@
+{
+  "kind": "synthetic SQLite rows; excludes filesystem crawl",
+  "entries": 100000,
+  "insert_seconds": 8.691,
+  "queries": [
+    {
+      "query": "invoice",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 4.436,
+      "max_ms": 127.229,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 4.672,
+      "max_ms": 4.716,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 2.225,
+      "max_ms": 2.688,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INDEX files_extension (extension_fold=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR LAST 2 TERMS OF ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "document-0999999",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 2.262,
+      "max_ms": 2.353,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "missing-needle",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 2.103,
+      "max_ms": 2.3,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 4.012,
+      "max_ms": 4.558,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 4.237,
+      "max_ms": 4.257,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 3.99,
+      "max_ms": 4.044,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN json_each VIRTUAL TABLE INDEX 1:",
+        "CREATE BLOOM FILTER",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH f USING INTEGER PRIMARY KEY (rowid=?)",
+        "SEARCH p USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    }
+  ],
+  "db_bytes": 25388401,
+  "aggregate_checks": [
+    {
+      "query": "",
+      "expected": 100000,
+      "actual": 100000,
+      "passed": true,
+      "elapsed_ms": 9.076
+    },
+    {
+      "query": "invoice",
+      "expected": 100,
+      "actual": 100,
+      "passed": true,
+      "elapsed_ms": 3.04
+    }
+  ]
+}

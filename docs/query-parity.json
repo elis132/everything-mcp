@@ -1,0 +1,62 @@
+[
+  {
+    "query": "invoice !draft",
+    "observed_original_count": 1,
+    "independent_count": 1
+  },
+  {
+    "query": "invoice",
+    "observed_original_count": 2,
+    "independent_count": 2
+  },
+  {
+    "query": "ext:pdf",
+    "observed_original_count": 1,
+    "independent_count": 1
+  },
+  {
+    "query": "folder:",
+    "observed_original_count": 1,
+    "independent_count": 1
+  },
+  {
+    "query": "nothing-will-match",
+    "observed_original_count": 0,
+    "independent_count": 0
+  },
+  {
+    "query": "\"invoice alpha\"",
+    "observed_original_count": 1,
+    "independent_count": 1
+  },
+  {
+    "query": "*.jpg",
+    "observed_original_count": 1,
+    "independent_count": 1
+  },
+  {
+    "query": "ext:pdf;txt",
+    "observed_original_count": 2,
+    "independent_count": 2
+  },
+  {
+    "query": "file:",
+    "observed_original_count": 3,
+    "independent_count": 3
+  },
+  {
+    "query": "!invoice",
+    "observed_original_count": 2,
+    "independent_count": 2
+  },
+  {
+    "query": "invoice | photo",
+    "observed_original_count": 3,
+    "independent_count": 3
+  },
+  {
+    "query": "invoice | photo ext:jpg",
+    "observed_original_count": 1,
+    "independent_count": 1
+  }
+]

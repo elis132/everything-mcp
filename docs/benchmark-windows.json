@@ -1,0 +1,132 @@
+{
+  "kind": "synthetic SQLite rows; excludes filesystem crawl",
+  "entries": 1000000,
+  "insert_seconds": null,
+  "queries": [
+    {
+      "query": "invoice",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 22.476,
+      "max_ms": 62.318,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 22.302,
+      "max_ms": 23.644,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 1.992,
+      "max_ms": 2.273,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_extension_name (root=? AND extension_fold=? AND is_directory=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "document-0999999",
+      "sort": "name",
+      "returned": 1,
+      "median_ms": 12.256,
+      "max_ms": 198.089,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "missing-needle",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 1.49,
+      "max_ms": 1.619,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 297.032,
+      "max_ms": 314.363,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_name (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 23.544,
+      "max_ms": 24.005,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 299.758,
+      "max_ms": 308.741,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_modified (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    }
+  ],
+  "db_bytes": 3544705224
+}

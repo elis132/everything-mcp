@@ -1,0 +1,14 @@
+{
+  "architecture": "x86_64",
+  "python": "3.13.2",
+  "sqlite": "3.45.3",
+  "macos": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83",
+  "cpu": "Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz",
+  "memory_bytes": 17179869184,
+  "dependencies": {
+    "mcp": "1.30.0",
+    "cryptography": "48.0.1",
+    "watchfiles": "1.3.0",
+    "regex": "2026.9.29"
+  }
+}

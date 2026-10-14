@@ -1,66 +1,20 @@
-# Everything MCP - Developer Guide
+﻿# Developer guidance
 
-## Overview
+This branch implements independent local file search over MCP. Explicit user direction supersedes the old es.exe design. Production code must not launch es.exe, connect to Everything, load its SDK or require its service.
 
-MCP server for voidtools Everything file search. Provides 5 tools for AI agents
-to search files at lightning speed via Everything's real-time NTFS index.
+- `index.py`: incremental scans, watchers, process locks and bounded search fallback.
+- `storage.py`: normalized directory/filename metadata, generated columns and transactional legacy-cache migration.
+- `names.py`: packed UTF-8 filename blocks, cross-process revision invalidation and partial search pages.
+- `query.py`: supported Everything-style grammar compiled to parameterized SQL; reject unsupported functions.
+- `ntfs.py`: experimental read-only metadata enumeration; not enabled as the authoritative crawler.
+- `backend.py`: compatibility models and async adapter.
+- `config.py`: explicit roots/cache environment configuration.
+- `server.py`: MCP tools and lifecycle; diagnostics only on stderr.
 
-## Project Structure
+Use `uv pip install -e '.[dev]'` in the project's virtual environment. Run pytest, Ruff check/format, and `python tests/live_smoke.py`. The latter exercises an actual stdio client/server pair. `scripts/benchmark_index.py` measures synthetic database searches, not real disk indexing.
 
-```
-src/everything_mcp/
-├── __init__.py     # Package init, version, main() entry
-├── __main__.py     # python -m everything_mcp
-├── py.typed        # PEP 561 type checking marker
-├── server.py       # MCP server, tool definitions (the main file)
-├── backend.py      # Everything communication via es.exe
-└── config.py       # Auto-detection of Everything installation
+Keep ordinary watcher updates scoped to affected paths. Exclude the cache and lock files. Preserve cached rows for inaccessible subtrees. Coordinate all processes sharing a cache during full scan generations. Never claim Everything-level performance from synthetic tests.
 
-tests/
-├── conftest.py     # Shared fixtures
-├── test_backend.py # Backend + query builders + parsing
-├── test_config.py  # Auto-detection logic
-└── test_server.py  # Tool functions + output formatting
-```
+Publish first-run scan batches immediately and serve available rows while building. Preserve partial-result metadata through the backend and MCP output. Missing roots, inaccessible subtrees and unindexable filesystem names must mark coverage incomplete while preserving cached entries where safe. A bounded fallback's sort/pagination covers its subset; label it explicitly. Packed filename memory measurements exclude the rest of process RSS. Counts are exact for the current index snapshot or report an error; surface incomplete snapshot coverage in statistics freshness notes.
 
-## Key Design Decisions
-
-- **es.exe CLI** (not SDK DLL) - maximum compatibility across versions
-- **No metadata flags** (`-size -dm -dc`) - clean path-per-line output + `os.stat()` enrichment is simpler and more reliable than parsing version-dependent columnar output
-- **5 tools** (not 1, not 16) - balanced for AI agent efficiency
-- **All tools read-only + idempotent** - annotated for MCP clients
-- **Every tool wrapped in try/except** - returns error strings, never raw exceptions
-- **Async subprocess** - non-blocking for MCP server event loop
-- **`from __future__ import annotations`** - full PEP 604 union syntax on Python 3.10+
-
-## Running
-
-```bash
-pip install -e ".[dev]"
-everything-mcp
-```
-
-## Testing
-
-```bash
-pytest                  # all tests
-pytest -v               # verbose
-pytest tests/test_backend.py  # single module
-pytest -x               # stop on first failure
-```
-
-## Linting
-
-```bash
-ruff check src/ tests/
-ruff format src/ tests/
-```
-
-## Adding a New Tool
-
-1. Define a Pydantic input model in `server.py` (with `ConfigDict`)
-2. Add `@mcp.tool` decorator with MCP annotations
-3. Implement async function using `_get_backend()`
-4. Wrap body in `try/except`, return error strings on failure
-5. Add tests in `tests/test_server.py`
-6. Document in `README.md`
+Do not add elevation, volume mutation, external ports or background Windows services implicitly. Directory traversal works without administrator rights; access-denied native reads must remain a normal fallback condition.

@@ -1,0 +1,144 @@
+{
+  "kind": "synthetic SQLite rows; excludes filesystem crawl",
+  "entries": 1000000,
+  "insert_seconds": 523.435,
+  "queries": [
+    {
+      "query": "invoice",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 4.985,
+      "max_ms": 257.702,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 4.914,
+      "max_ms": 4.976,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 0.46,
+      "max_ms": 8.267,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_extension_name (root=? AND extension_fold=? AND is_directory=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "document-0999999",
+      "sort": "name",
+      "returned": 1,
+      "median_ms": 4.549,
+      "max_ms": 31.157,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "missing-needle",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 0.273,
+      "max_ms": 0.284,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "name",
+      "error": "Query exceeded its time limit (including bounded regex evaluation)",
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_name (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "invoice",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 5.861,
+      "max_ms": 233.857,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "CREATE BLOOM FILTER",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "date-modified-desc",
+      "error": "Query exceeded its time limit (including bounded regex evaluation)",
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_modified (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)"
+      ]
+    }
+  ],
+  "db_bytes": 4195959784,
+  "aggregate_checks": [
+    {
+      "query": "",
+      "expected": 1000000,
+      "actual": 1000000,
+      "passed": true,
+      "elapsed_ms": 3643.787
+    },
+    {
+      "query": "invoice",
+      "expected": 1000,
+      "actual": 1000,
+      "passed": true,
+      "elapsed_ms": 173.147
+    }
+  ]
+}

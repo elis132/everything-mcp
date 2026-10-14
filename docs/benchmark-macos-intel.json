@@ -1,0 +1,151 @@
+{
+  "kind": "synthetic SQLite rows; excludes filesystem crawl",
+  "entries": 100000,
+  "insert_seconds": 61.162,
+  "queries": [
+    {
+      "query": "invoice",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 2.156,
+      "max_ms": 11.994,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "invoice ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 2.111,
+      "max_ms": 2.253,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "ext:pdf",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 0.932,
+      "max_ms": 20.861,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_extension_name (root=? AND extension_fold=? AND is_directory=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "document-0999999",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 0.834,
+      "max_ms": 1.012,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "missing-needle",
+      "sort": "name",
+      "returned": 0,
+      "median_ms": 0.605,
+      "max_ms": 0.728,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "name",
+      "returned": 50,
+      "median_ms": 26.017,
+      "max_ms": 320.11,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_name (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "invoice",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 2.358,
+      "max_ms": 2.407,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING INDEX entries_root (root=? AND rowid=?)",
+        "LIST SUBQUERY 1",
+        "SCAN entries_fts VIRTUAL TABLE INDEX 0:M2",
+        "USE TEMP B-TREE FOR ORDER BY",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "query": "in",
+      "sort": "date-modified-desc",
+      "returned": 50,
+      "median_ms": 28.074,
+      "max_ms": 88.595,
+      "plan": [
+        "MATERIALIZE selected",
+        "SEARCH e USING COVERING INDEX entries_root_modified (root=?)",
+        "SCAN selected",
+        "SEARCH e USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    }
+  ],
+  "db_bytes": 475056152,
+  "aggregate_checks": [
+    {
+      "query": "",
+      "expected": 100000,
+      "actual": 100000,
+      "passed": true,
+      "elapsed_ms": 10.302
+    },
+    {
+      "query": "invoice",
+      "expected": 100,
+      "actual": 100,
+      "passed": true,
+      "elapsed_ms": 1.744
+    }
+  ]
+}

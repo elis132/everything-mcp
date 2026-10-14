@@ -2,6 +2,18 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [2.0.0] - 2026-10-14
+
+### Changed
+
+- Replaced the Everything CLI integration with an independent persistent local index. The MCP tools now search indexed roots without `es.exe`, an Everything installation, service, SDK DLL, or network API.
+- Reworked indexing, query evaluation, persistence, partial-result reporting, and cross-platform support. See [README.md](README.md) and [docs/VALIDATION.md](docs/VALIDATION.md) for setup, behavior, validation, and known limits.
+
+### Fixed
+
+- Incomplete root or subtree scans now mark searches and statistics as partial while retaining cached entries.
+- POSIX names that cannot be represented as SQLite UTF-8 text are skipped and reported without aborting the full scan.
+
 ## [1.0.9] - 2026-09-25
 
 Root cause of #18, reproduced on Everything 1.4.1.1032: Everything answers IPC queries one at a time, and a query that arrives while a slow one runs blocks Everything completely (its window included) until the slow one finishes. Killing es.exe does not cancel a query inside Everything. Slow queries come from functions that read files from disk, which the search tool's own `content:TODO ext:py` example encouraged; with `content:` first, Everything 1.4 reads every file on every drive.

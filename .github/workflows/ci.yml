@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  # Resolves mcp the way a fresh `uvx`/`pip` install does (currently 2.x).
+  # Resolves the supported mcp 1.x range from package metadata.
   # Job names here are pinned as required status checks, so keep the matrix
   # dimensions stable - adding one renames every job and the required checks
   # then never report.
@@ -29,10 +29,7 @@ jobs:
       - name: Test
         run: pytest -v
 
-  # mcp 2.0 renamed FastMCP to MCPServer and moved it, which broke every fresh
-  # install (#13); server.py now imports through a compat shim. This job keeps
-  # the older SDK line covered so the shim cannot rot unnoticed. Separate from
-  # `test` rather than a matrix dimension, to leave those job names untouched.
+  # Keep the existing required job name stable while validating the supported SDK line.
   test-mcp1:
     strategy:
       fail-fast: false
@@ -64,6 +61,6 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
       - name: Ruff check
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ scripts/
       - name: Ruff format
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ scripts/

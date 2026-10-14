@@ -1,0 +1,14 @@
+{
+  "architecture": "arm64",
+  "python": "3.14.3",
+  "sqlite": "3.51.3",
+  "macos": "ProductName:\t\tmacOS\nProductVersion:\t\t26.2\nBuildVersion:\t\t25C56",
+  "cpu": "Apple M1",
+  "memory_bytes": 8589934592,
+  "dependencies": {
+    "mcp": "1.30.0",
+    "cryptography": "50.0.2",
+    "watchfiles": "1.3.0",
+    "regex": "2026.9.29"
+  }
+}

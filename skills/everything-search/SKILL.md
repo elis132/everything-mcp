@@ -1,71 +1,22 @@
----
+﻿---
 name: everything-search
-description: Find files and folders on Windows instantly using the Everything MCP tools (everything_search, everything_find_recent, everything_search_by_type, everything_file_details, everything_count_stats). Use whenever the user asks to locate, list, count, or size files anywhere on a Windows machine - dramatically faster than dir, Get-ChildItem, glob, or recursive directory walks.
+description: Search the configured local filesystem index through the independent everything_* MCP tools. Use for finding, listing, counting or sizing files in indexed roots on Windows, Linux or macOS.
 ---
 
-# Everything File Search
+# Independent local file search
 
-The `everything_*` MCP tools query voidtools Everything's real-time NTFS index.
-A search over millions of files returns in milliseconds, so prefer these tools
-over shell commands (`dir /s`, `Get-ChildItem -Recurse`, glob) for ANY
-filename-based lookup outside the current project directory.
+Use `everything_index_status` to inspect roots, readiness and watcher health. Search covers only those roots and reflects the cache; cached results may be stale during startup reconciliation or when watching is unavailable.
 
-## Picking the right tool
+While the first scan builds, search available entries immediately. Responses report searchable counts and partial coverage; retry later for a complete inventory. A budget-limited search also labels partial results: its ordering and pagination apply only to the inspected subset. Narrow the query before treating a miss as definitive or combining pages into a complete listing.
 
-| Task | Tool |
-|---|---|
-| Find files/folders by name, extension, size, date | `everything_search` |
-| "What changed in the last hour/day/week?" | `everything_find_recent` |
-| All videos / documents / code / archives somewhere | `everything_search_by_type` |
-| Metadata or first N lines of specific files | `everything_file_details` |
-| "How many?" / "How much disk space?" | `everything_count_stats` |
+- `everything_search`: names, paths, extensions, sizes and modified dates.
+- `everything_search_by_type`: category filtering.
+- `everything_find_recent`: modified-time filtering.
+- `everything_count_stats`: counts and aggregate sizes before large listings.
+- `everything_file_details`: current metadata and optional preview for explicit paths.
 
-Use `everything_count_stats` BEFORE listing when a query might match
-thousands of files - check the scope first, then narrow.
+Examples: `invoice !draft`, `ext:py;ts`, `path:"D:\Dev" ext:pdf`, `size:>10mb`, `dm:last7days`, `folder: project`, `regex:^test_.*\.py$`.
 
-## Query syntax essentials
+Quote paths with spaces inside the query. Spaces mean AND. OR binds before AND: `invoice | photo ext:jpg` means `(invoice OR photo) AND ext:jpg`. Paginate with max_results/offset.
 
-Space between terms = AND. Key operators:
-
-```
-report.pdf                    name contains "report.pdf"
-*.py                          extension wildcard
-ext:py;js;ts                  multiple extensions
-path:C:\Projects ext:py       restrict to a directory tree
-size:>10mb  size:1kb..1mb     size filters
-dm:today  dm:last7days        modified date (plural units: last2hours)
-path:X dc:2024                created date (slow unless indexed: scope it)
-"exact name.txt"              phrase with spaces (quote it)
-a | b                         OR
-!node_modules                 exclude
-folder:                       folders only
-file:                         files only
-dupe:                         duplicate names
-empty:                        empty folders
-regex:^test_.*\.py$           regex (or pass match_regex=true)
-```
-
-## Patterns that work well
-
-- Locate a project someone mentioned: `everything_search(query="folder: myproject")`
-- Find a config file of unknown location: `everything_search(query="wg0.conf | wireguard ext:conf")`
-- Recently downloaded file: `everything_find_recent(period="1hour", path="C:\\Users\\<user>\\Downloads")`
-- Disk usage of build artifacts: `everything_count_stats(query="path:C:\\Projects node_modules folder:", include_size=true)`
-- Then inspect what you found: `everything_file_details(paths=[...], preview_lines=30)`
-
-## Pitfalls
-
-- Paths with spaces must be quoted INSIDE the query: `path:"C:\My Documents"`.
-- Results reflect the index, not content. `content:`, `width:`/`height:`,
-  music tags and (unless indexed) `dc:`/`da:`/`attrib:` read files from disk
-  and block Everything while they run, so the server only allows them after
-  `path:`/`ext:`/name terms that narrow the candidates (1,000 files and 100 MB
-  for content, 30,000 for dates). To search inside many files, find candidates
-  by name first, then grep them.
-- If a tool says Everything is busy, do not retry in a loop: wait, or ask the
-  user to restart Everything. Never kill Everything yourself.
-- Everything must be running; if tools return connection errors, tell the user
-  to start Everything (system tray). Do not suggest setting
-  `EVERYTHING_INSTANCE` unless they configured a named instance.
-- Search is across ALL indexed drives by default - add `path:` to scope, and
-  prefer `max_results`/`offset` paging over huge listings.
+Single- and two-character terms match adjacent letters anywhere in the filename: `in` finds `invoice`, `printing` and `minfil`. Everything does not need to be installed or running. Unsupported functions (including content, dupe and media metadata) return errors; use filename filters to find candidates, then a separate content-search tool. Broad path and regex queries can be slower. Never promise instant results across unindexed paths.

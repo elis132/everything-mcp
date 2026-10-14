@@ -1,36 +1,19 @@
-name: Live smoke test
-
-# Experimental: runs the backend against a REAL Everything instance on a
-# Windows runner (unit tests mock es.exe). Manual trigger only.
+﻿name: Live smoke test
 on:
   workflow_dispatch:
-
 jobs:
   live-smoke:
-    runs-on: windows-latest
-    timeout-minutes: 20
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - name: Install Everything and es.exe
-        run: choco install everything es -y --no-progress
-      - name: Start Everything and wait for the index
-        shell: pwsh
-        run: |
-          Start-Process "C:\Program Files\Everything\Everything.exe" -ArgumentList "-startup"
-          $ok = $false
-          foreach ($i in 1..36) {
-            $v = & es.exe -get-everything-version 2>$null
-            if ($LASTEXITCODE -eq 0 -and $v) { $ok = $true; break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $ok) { throw "Everything did not respond within 3 minutes" }
-          Write-Host "Everything version: $v"
-          # Give the initial NTFS index a moment to finish building
-          Start-Sleep -Seconds 15
-      - name: Install package
+      - name: Install independent MCP
         run: pip install -e .
-      - name: Run live smoke test
+      - name: Exercise actual MCP protocol
         run: python tests/live_smoke.py

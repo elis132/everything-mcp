@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "everything-mcp"
-version = "1.0.9"
-description = "The definitive MCP server for voidtools Everything - lightning-fast file search for AI agents"
+version = "2.0.0"
+description = "Independent local file index and fast search for AI agents over MCP"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -17,10 +17,12 @@ keywords = [
     "codex", "gemini", "ai-agent", "model-context-protocol",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -31,8 +33,12 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.26.0,<2",
     "pydantic>=2.0.0",
+    "watchfiles>=1.1.0,<2",
+    "regex>=2025.11.3",
+    # cryptography 49 removed Intel macOS support (MCP's transitive dependency).
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [project.optional-dependencies]

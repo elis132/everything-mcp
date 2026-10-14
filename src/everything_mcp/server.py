@@ -1,12 +1,4 @@
-"""
-Everything MCP Server - The definitive MCP server for voidtools Everything.
-
-Provides 5 tools for AI agents to search and analyse files at lightning speed
-using voidtools Everything's real-time NTFS index.
-
-Compatible with: Claude Code, Codex, Gemini, Kimi, Qwen, Cursor, Windsurf,
-and any MCP-compatible client using stdio transport.
-"""
+"""Headless MCP tools backed by an independent persistent local file index."""
 
 from __future__ import annotations
 
@@ -14,8 +6,8 @@ import asyncio
 import json
 import logging
 import os
+import stat
 import sys
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -50,43 +42,36 @@ logger = logging.getLogger("everything_mcp")
 
 _backend: EverythingBackend | None = None
 _config: EverythingConfig | None = None
-_last_detect = 0.0
-_REDETECT_INTERVAL = 10.0
 
 
 @asynccontextmanager
 async def lifespan(server):
-    """Initialise Everything backend on startup, cleanup on shutdown."""
-    global _backend, _config, _last_detect
-
-    logger.info("Everything MCP starting - auto-detecting Everything installation…")
-    _config = EverythingConfig.auto_detect()
-    _last_detect = time.monotonic()
-
-    if _config.is_valid:
-        logger.info("Connected: %s  (es: %s)", _config.version_info, _config.es_path)
-    else:
-        for err in _config.errors:
-            logger.error("  %s", err)
-        for warn in _config.warnings:
-            logger.warning("  %s", warn)
-
-    _backend = EverythingBackend(_config)
+    """Open our index promptly; the first build continues in the background."""
+    global _backend, _config
+    _config = EverythingConfig.from_env()
+    backend = EverythingBackend(_config)
+    _backend = backend
     try:
+        if _config.is_valid:
+            try:
+                await backend.start()
+                logger.info("Independent file index started for %s", _config.roots)
+            except Exception as exc:
+                _config.errors.append(f"Unable to open local index: {exc}")
+                logger.error("%s", _config.errors[-1])
+        else:
+            logger.error("Invalid index configuration: %s", "; ".join(_config.errors))
         yield
     finally:
-        logger.info("Everything MCP shutting down.")
+        await backend.close()
+        _backend = None
 
-
-# ── Server instance ───────────────────────────────────────────────────────
 
 mcp = FastMCP("everything_mcp", lifespan=lifespan)
 
 
 _SORT_DESCRIPTION = (
-    "Sort order. Options: "
-    + ", ".join(sorted(SORT_MAP.keys()))
-    + ". Default: date-modified-desc (name if Everything does not index date modified)."
+    "Sort order. Options: " + ", ".join(sorted(SORT_MAP.keys())) + ". Default: date-modified-desc."
 )
 
 
@@ -97,31 +82,37 @@ def _validate_sort(v: str | None) -> str | None:
 
 
 async def _get_backend() -> EverythingBackend:
-    """Return the backend or raise with a clear message.
-
-    If Everything was stopped or busy at startup, detection is retried (at
-    most every ``_REDETECT_INTERVAL`` seconds) instead of leaving the server
-    broken until the MCP client restarts it.
-    """
-    global _backend, _config, _last_detect
+    """Return the configured independent backend without probing external programs."""
     if _backend is None:
-        raise RuntimeError("Everything MCP not initialised")
-    if _config and _config.is_valid:
-        return _backend
+        raise RuntimeError("Local index MCP is not initialised")
+    if not _backend.config.is_valid:
+        raise RuntimeError("Invalid index configuration: " + "; ".join(_backend.config.errors))
+    return _backend
 
-    if _config is not None and time.monotonic() - _last_detect >= _REDETECT_INTERVAL:
-        _last_detect = time.monotonic()
-        config = await asyncio.to_thread(EverythingConfig.auto_detect)
-        if config.is_valid:
-            logger.info("Connected: %s  (es: %s)", config.version_info, config.es_path)
-            _config, _backend = config, EverythingBackend(config)
-            return _backend
-        logger.warning("Re-detection failed: %s", " ".join(config.errors))
-        # Safe to replace: a backend with an invalid config never ran es.exe.
-        _config, _backend = config, EverythingBackend(config)
 
-    errors = _config.errors if _config else ["Not initialised"]
-    raise RuntimeError("Everything is not available. " + " ".join(errors))
+async def _current_results(backend, results, label, max_results, offset=0) -> str:
+    output = _format_search_results(results, label, max_results, offset)
+    if getattr(results, "partial", False):
+        output += "\n\nPartial search: " + results.note
+    status = await backend.health_check()
+    if status.get("state") == "building":
+        output += (
+            f"\n\nIndex is building: {status.get('indexed_entries', 0):,} entries currently searchable. "
+            "Results are partial and grow as scanning continues. Check everything_index_status for progress."
+        )
+    elif status.get("state") == "error":
+        output += "\n\nIndex reconciliation failed; cached results may be stale: " + str(
+            status.get("last_error") or "See everything_index_status."
+        )
+    elif status.get("partial") and not getattr(results, "partial", False):
+        output += "\n\nIndex coverage is incomplete: " + str(
+            status.get("coverage_note") or "Some configured paths could not be indexed."
+        )
+    elif status.get("last_error") or status.get("watching") is False:
+        output += "\n\nIndex freshness is degraded; cached results may be stale: " + str(
+            status.get("last_error") or "Filesystem watching is unavailable."
+        )
+    return output
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -137,17 +128,15 @@ class SearchInput(BaseModel):
     query: str = Field(
         ...,
         description=(
-            "Search query using Everything syntax. Examples: "
+            "Search query using the supported Everything-style subset. Examples: "
             "'*.py' (all Python files), "
             "'ext:py;js path:C:\\Projects' (Python/JS in Projects), "
             "'size:>10mb ext:log' (large logs), "
             "'dm:today ext:py' (Python files modified today), "
-            "'\"exact phrase\"' (exact filename match), "
+            "'\"exact phrase\"' (filename contains phrase), "
             "'regex:test_\\d+\\.py$' (regex). "
-            "Combine with space (AND) or | (OR). Prefix ! to exclude. "
-            "Functions that read files from disk (content:, width:, height:, "
-            "music tags, and dc:/da:/attrib: unless indexed) need a path:/ext: "
-            "filter and only run on small candidate sets."
+            "Combine with space (AND) or | (OR, evaluated before AND). Prefix ! to exclude. "
+            "Content and media tags are not indexed; unsupported functions return an error."
         ),
         min_length=1,
         max_length=2000,
@@ -185,11 +174,10 @@ class SearchInput(BaseModel):
     },
 )
 async def everything_search(params: SearchInput) -> str:
-    """Search for files and folders instantly using voidtools Everything.
+    """Search configured roots using our own SQLite filename/metadata index.
 
-    Leverages Everything's real-time NTFS index for sub-millisecond search
-    across all local and mapped drives.  Supports wildcards, regex, size/date
-    filters, extension filters, and path restrictions.
+    No external application, background search service or GUI is required.
+    The first build may take time; everything_index_status reports progress.
     """
     try:
         backend = await _get_backend()
@@ -203,7 +191,9 @@ async def everything_search(params: SearchInput) -> str:
             match_path=params.match_path,
             offset=params.offset,
         )
-        return _format_search_results(results, params.query, params.max_results, params.offset)
+        return await _current_results(
+            backend, results, params.query, params.max_results, params.offset
+        )
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -264,7 +254,7 @@ async def everything_search_by_type(params: SearchByTypeInput) -> str:
             sort=params.sort or backend.default_sort(),
         )
         label = f"type:{params.file_type}" + (f" {params.query}" if params.query else "")
-        return _format_search_results(results, label, params.max_results)
+        return await _current_results(backend, results, label, params.max_results)
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -286,7 +276,7 @@ class FindRecentInput(BaseModel):
             + ", ".join(
                 sorted(TIME_PERIODS.keys(), key=lambda k: list(TIME_PERIODS.keys()).index(k))
             )
-            + ".  Or raw Everything syntax like 'last2hours'."
+            + ".  Or a supported rolling period like 'last2hours'."
         ),
     )
     path: str = Field(default="", description="Restrict to this directory path")
@@ -326,7 +316,9 @@ async def everything_find_recent(params: FindRecentInput) -> str:
             max_results=params.max_results,
             sort=backend.default_sort(),
         )
-        return _format_search_results(results, f"recent ({params.period})", params.max_results)
+        return await _current_results(
+            backend, results, f"recent ({params.period})", params.max_results
+        )
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -406,9 +398,13 @@ def _get_file_details_sync(paths: list[str], preview_lines: int) -> str:
             info["date_modified"] = datetime.fromtimestamp(stat.st_mtime).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
-            info["date_created"] = datetime.fromtimestamp(stat.st_ctime).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
+            birth_time = getattr(stat, "st_birthtime", None)
+            if birth_time is None and os.name == "nt":
+                birth_time = stat.st_ctime
+            if birth_time is not None:
+                info["date_created"] = datetime.fromtimestamp(birth_time).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
             info["date_accessed"] = datetime.fromtimestamp(stat.st_atime).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
@@ -468,7 +464,7 @@ class CountStatsInput(BaseModel):
     )
     breakdown_by_extension: bool = Field(
         default=False,
-        description="Break down count and size by file extension (samples top 200 results)",
+        description="Break down count and size by file extension (samples up to 500 results)",
     )
 
 
@@ -490,15 +486,14 @@ async def everything_count_stats(params: CountStatsInput) -> str:
     """
     try:
         backend = await _get_backend()
-        output: dict = {"query": params.query}
+        output: dict = {"query": params.query, "index_status": await backend.health_check()}
 
-        # Count.  Failures (busy, timeout, refused query) end the call: sending
-        # the size query to a busy Everything would only queue behind it.
+        # Stop on a count error instead of submitting more work.
         total_count = await backend.count(params.query)
         if total_count >= 0:
             output["total_count"] = total_count
         else:
-            output["count_note"] = "Count not available (es.exe may not support -get-result-count)"
+            output["count_note"] = "Count not available"
 
         # Total size
         if params.include_size:
@@ -546,6 +541,16 @@ async def everything_count_stats(params: CountStatsInput) -> str:
             except Exception as exc:
                 output["breakdown_error"] = str(exc)
 
+        status = output["index_status"] = await backend.health_check()
+        if (
+            status.get("state") != "ready"
+            or status.get("partial")
+            or status.get("last_error")
+            or status.get("watching") is False
+        ):
+            output["freshness_note"] = (
+                "Index coverage or freshness is incomplete or degraded; cached statistics may be stale."
+            )
         return json.dumps(output, indent=2, ensure_ascii=False)
     except Exception as exc:
         return f"Error: {exc}"
@@ -558,14 +563,29 @@ async def everything_count_stats(params: CountStatsInput) -> str:
 
 @mcp.resource("everything://status")
 async def get_status() -> str:
-    """Get the current status of the Everything connection."""
+    """Read own-index build state, roots, entry count and watcher diagnostics."""
     if _backend is None:
-        return json.dumps({"status": "not initialised"}, indent=2)
-    try:
-        backend = await _get_backend()  # re-detects if Everything was unavailable
-    except RuntimeError:
-        backend = _backend
-    return json.dumps(await backend.health_check(), indent=2)
+        return json.dumps({"state": "not_started"}, indent=2)
+    return json.dumps(await _backend.health_check(), indent=2, ensure_ascii=False)
+
+
+@mcp.tool(
+    name="everything_index_status",
+    annotations={
+        "title": "Local Index Status",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def everything_index_status() -> str:
+    """Report independent index readiness, configured roots and last scan errors.
+
+    A building index may serve cached rows while reconciliation is in progress.
+    This tool does not trigger a full rescan or require any external application.
+    """
+    return await get_status()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -874,7 +894,10 @@ def _read_preview(path: Path, max_lines: int) -> str | None:
     Returns ``None`` for binary files or files that can't be read.
     """
     try:
-        if path.stat().st_size > _MAX_PREVIEW_FILE_SIZE:
+        metadata = path.stat()
+        if not stat.S_ISREG(metadata.st_mode):
+            return None
+        if metadata.st_size > _MAX_PREVIEW_FILE_SIZE:
             return "(file too large for preview)"
     except OSError:
         return None
