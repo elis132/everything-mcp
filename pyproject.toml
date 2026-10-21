@@ -62,6 +62,9 @@ include = ["src/everything_mcp", "README.md", "LICENSE", "CHANGELOG.md", "pyproj
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "ipc: exercises native IPC detection/transport (mocked unless live)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

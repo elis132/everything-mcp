@@ -80,6 +80,10 @@ class EverythingConfig:
 
     es_path: str = ""
     instance: str = ""
+    # "ipc": native WM_COPYDATA queries (no es.exe needed, metadata in the reply);
+    # "es": es.exe subprocess + os.stat().  Chosen by auto_detect(); override with
+    # EVERYTHING_TRANSPORT=es|ipc.
+    transport: str = "es"
     timeout: int = 30
     max_results_cap: int = 1000
     errors: list[str] = field(default_factory=list)
@@ -89,8 +93,8 @@ class EverythingConfig:
 
     @property
     def is_valid(self) -> bool:
-        """True when es.exe was found and Everything is responding."""
-        return bool(self.es_path) and len(self.errors) == 0
+        """True when a transport is usable and Everything is responding."""
+        return (bool(self.es_path) or self.transport == "ipc") and len(self.errors) == 0
 
     @classmethod
     def auto_detect(cls) -> EverythingConfig:
@@ -153,6 +157,19 @@ class EverythingConfig:
         """Steps 2-7 of :meth:`auto_detect` (caller holds the machine lock)."""
         config = self
         config.es_path = _find_es_exe(env_path)
+
+        wanted = os.environ.get("EVERYTHING_TRANSPORT", "").strip().lower()
+        if wanted not in ("", "ipc", "es"):
+            config.warnings.append(f"EVERYTHING_TRANSPORT='{wanted}' ignored (use ipc or es)")
+            wanted = ""
+        if wanted != "es" and _detect_ipc(config, env_instance):
+            return
+        if wanted == "ipc":
+            config.errors.append(
+                "EVERYTHING_TRANSPORT=ipc but Everything's IPC window was not found. "
+                "Ensure Everything is running (check your system tray)."
+            )
+            return
 
         if not config.es_path:
             config.errors.append(
@@ -228,6 +245,47 @@ class EverythingConfig:
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────
+
+
+def _detect_ipc(config: EverythingConfig, env_instance: str) -> bool:
+    """Select the native IPC transport when Everything's IPC window answers.
+
+    Tries EVERYTHING_INSTANCE first, then the default and ``1.5a`` instances
+    (same order as the es.exe probe).  A window that exists but does not
+    answer is a busy Everything: report it rather than probing further.
+    """
+    if sys.platform != "win32":
+        return False
+    from everything_mcp.ipc import IpcError, IpcTransport
+
+    instances = [env_instance] if env_instance else []
+    instances += [i for i in ("", "1.5a") if i not in instances]
+    for instance in instances:
+        transport = IpcTransport(instance, timeout=_PROBE_TIMEOUT)
+        if not transport.available():
+            continue
+        try:
+            config.version_info = transport.version()
+        except IpcError:
+            config.instance, config.transport = instance, "ipc"
+            config.errors.append(
+                "Everything did not answer: it is probably busy with a slow query. "
+                "The connection is retried on later tool calls (at most every 10 s); "
+                "if Everything stays busy, ask the user to restart it."
+            )
+            return True
+        if env_instance and instance != env_instance:
+            config.warnings.append(
+                f"EVERYTHING_INSTANCE='{env_instance}' does not respond; using the "
+                f"{instance or 'default'} instance instead."
+            )
+        config.instance, config.transport = instance, "ipc"
+        config.indexed = _read_index_settings(instance, config.es_path)
+        logger.info(
+            "Everything IPC OK: %s (instance %s)", config.version_info, instance or "default"
+        )
+        return True
+    return False
 
 
 def _find_es_exe(env_override: str = "") -> str:

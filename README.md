@@ -8,6 +8,7 @@
     <a href="https://pypi.org/project/everything-mcp/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/everything-mcp.svg?cacheSeconds=300&v=20260204"></a>
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/elis132/everything-mcp.svg?cacheSeconds=300&v=20260204"></a>
   </p>
+  <p><b>English</b> · <a href="README.ko.md">한국어</a></p>
 </div>
 
 ---
@@ -73,6 +74,20 @@ print("Matches:", len(matches))
 </details>
 
 ---
+
+## Native IPC transport
+
+When Everything is running, the server talks to it directly over Everything's documented IPC (`WM_COPYDATA` / `EVERYTHING_IPC_QUERY2`, the protocol es.exe itself uses) from pure `ctypes`: **es.exe becomes optional** and size/dates come back in Everything's reply instead of one `os.stat()` per result. That matters most on network shares, where each `os.stat()` is a round trip. Same server and machine (Everything 1.4.1.1032 x64, 6.1M entries incl. NAS folder indexes), es.exe vs IPC:
+
+| Call | es.exe | IPC |
+|---|---:|---:|
+| 500 results on an SMB share | 49,479 ms | 250 ms |
+| 100 `xlsx` under an SMB share | 6,986 ms | 63 ms |
+| non-ASCII name search | 4,314 ms | 646 ms |
+| `everything_find_recent` (today) | 1,175 ms | 149 ms |
+| `everything_count_stats` | 1,238 ms | 89 ms |
+
+Falls back to es.exe automatically when the IPC window is not found; `EVERYTHING_TRANSPORT` forces either. All guards (slow-function rules, cross-session lock, busy-after-timeout) apply to both. es.exe is still used for total size in `everything_count_stats` when available.
 
 ## Installation
 
@@ -143,6 +158,7 @@ Everything MCP auto-detects your setup, but you can override:
 
 | Variable | Description | Example |
 |---|---|---|
+| `EVERYTHING_TRANSPORT` | Force `ipc` (native, no es.exe) or `es` (es.exe subprocess). Default: `ipc` when Everything answers, else `es` | `es` |
 | `EVERYTHING_ES_PATH` | Path to es.exe | `C:\Program Files\Everything\es.exe` |
 | `EVERYTHING_INSTANCE` | Named Everything instance | `1.5a` |
 | `EVERYTHING_MAX_RESULTS_CAP` | Hard cap on results per search (default `1000`) | `200` |
