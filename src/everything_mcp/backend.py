@@ -293,7 +293,28 @@ class EverythingBackend:
         # searched as a literal string and return 0 results.
         # Must preserve quoted sections (e.g. "exact name.txt",
         # path:"C:\My Documents") as single tokens.
-        cmd.extend(await self._query_terms(query, flags))
+        terms = await self._query_terms(query, flags)
+        if self.config.transport == "ipc":
+            # Same term order/guards as es.exe; IPC takes one search string
+            # and returns size + dates in the reply (no os.stat per result).
+            items = await self._run_ipc(
+                lambda t: (
+                    t.query(
+                        _join_terms(terms, flags),
+                        max_results=min(max_results, self.config.max_results_cap),
+                        offset=offset,
+                        sort=sort,
+                        match_case=match_case,
+                        match_whole_word=match_whole_word,
+                        match_path=match_path,
+                        size=self.config.indexed.get("index_size", True),
+                        date_modified=self.config.indexed.get("index_date_modified", True),
+                        date_created=self.config.indexed.get("index_date_created", False),
+                    ).items
+                )
+            )
+            return [_ipc_to_result(i) for i in items]
+        cmd.extend(terms)
 
         stdout, stderr, rc = await self._run(cmd)
 
@@ -318,6 +339,12 @@ class EverythingBackend:
 
     async def _aggregate(self, option: str, terms: list[str], flags: list[str] = ()) -> int:
         """Run ``-get-result-count`` or ``-get-total-size`` over *terms*."""
+        if self.config.transport == "ipc":
+            if option == "-get-result-count":
+                search = _join_terms(terms, flags)
+                return await self._run_ipc(lambda t: t.count(search, match_path="-p" in flags))
+            if not self.config.es_path:
+                return -1  # QUERY2 has no size aggregate; es.exe is needed for that
         # Important: do not combine with "-n 0" because es.exe then reports 0.
         cmd = [*self._base_cmd(), option, *flags, *terms]
         stdout, stderr, rc = await self._run(cmd)
@@ -353,6 +380,15 @@ class EverythingBackend:
             return {"status": "busy", "message": BUSY_THIS_SESSION}
 
         try:
+            if self.config.transport == "ipc":
+                version = await self._run_ipc(lambda t: t.version())
+                return {
+                    "status": "ok",
+                    "everything_version": version,
+                    "transport": "ipc",
+                    "es_path": self.config.es_path or "not needed (native IPC)",
+                    "instance": self.config.instance or "default",
+                }
             cmd = self._base_cmd()
             cmd.append("-get-everything-version")
             stdout, _, rc = await self._run(cmd)
@@ -381,6 +417,47 @@ class EverythingBackend:
         if self.config.instance:
             cmd.extend(["-instance", self.config.instance])
         return cmd
+
+    async def _run_ipc(self, call):
+        """Run one IPC call under the same locks and busy rules as :meth:`_run`.
+
+        A WM_COPYDATA query is synchronous inside Everything just like an
+        es.exe one, so it takes the per-process and machine-wide locks.  The
+        call runs in a daemon thread: on timeout it keeps waiting for
+        Everything's reply (which is the busy signal), like a pending es.exe.
+        """
+        from everything_mcp.ipc import IpcError, IpcTransport
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _MACHINE_LOCK_WAIT
+        async with self._lock:
+            if self._pending is not None:
+                if not self._pending.done():
+                    raise RuntimeError(BUSY_THIS_SESSION)
+                self._pending = None
+            lock_fd = await _acquire_machine_lock(deadline)
+            # The thread's own timeout ends a query Everything never answers
+            # (e.g. it restarted); the caller stops waiting earlier.
+            transport = IpcTransport(
+                self.config.instance, timeout=max(self.config.timeout * 10, 300)
+            )
+            task = _call_in_thread(lambda: call(transport))
+            task.add_done_callback(lambda t: _es_finished(t, lock_fd))
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=self.config.timeout)
+            except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+                self._pending = task
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                raise RuntimeError(
+                    f"Search timed out after {self.config.timeout}s. Everything is still "
+                    "running this query and answers no other search until it finishes; "
+                    "calls report busy until then. Retry later with a narrower query "
+                    "(add path: or ext:); if Everything stays busy, ask the user to "
+                    "restart it."
+                ) from exc
+            except IpcError as exc:
+                raise RuntimeError(f"Everything search failed: {exc}") from exc
 
     async def _query_terms(self, query: str, flags: list[str] = ()) -> list[str]:
         """Split *query* into es.exe args, keeping disk-reading terms cheap.
@@ -575,10 +652,15 @@ def _communicate_in_thread(process: subprocess.Popen) -> asyncio.Future:
     minutes, and the default executor is joined at exit, so the server could
     not shut down.  A daemon thread is abandoned at exit instead.
     """
+    return _call_in_thread(process.communicate)
+
+
+def _call_in_thread(fn) -> asyncio.Future:
+    """Run *fn* in a daemon thread, as a future of this loop (see above)."""
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
 
-    def deliver(outcome: tuple | BaseException) -> None:
+    def deliver(outcome: object) -> None:
         if future.done():
             return
         if isinstance(outcome, BaseException):
@@ -588,13 +670,13 @@ def _communicate_in_thread(process: subprocess.Popen) -> asyncio.Future:
 
     def work() -> None:
         try:
-            outcome = process.communicate()
+            outcome = fn()
         except BaseException as exc:  # handed to the awaiting caller
             outcome = exc
         with contextlib.suppress(RuntimeError):  # loop already closed at exit
             loop.call_soon_threadsafe(deliver, outcome)
 
-    threading.Thread(target=work, name="es.exe", daemon=True).start()
+    threading.Thread(target=work, name="everything-query", daemon=True).start()
     return future
 
 
@@ -680,6 +762,37 @@ def _ipc_window(instance: str) -> int | None:
 
 
 # ── Parsing & enrichment ──────────────────────────────────────────────────
+
+
+def _join_terms(terms: list[str], flags: list[str] = ()) -> str:
+    """One IPC search string from es.exe-style terms (space = AND).
+
+    es.exe's ``-r`` makes only the first term a regex; IPC has no per-term
+    switch, so that term gets Everything's ``regex:`` modifier instead.
+    """
+    if "-r" in flags and terms:
+        terms = ["regex:" + terms[0], *terms[1:]]
+    return " ".join(terms)
+
+
+def _ipc_to_result(item) -> SearchResult:
+    """SearchResult from an IPC item (metadata already in the reply)."""
+    path = item.full_path
+    name = Path(path).name or path
+    ext = "" if item.is_dir else Path(path).suffix.lstrip(".").lower()
+
+    def fmt(iso: str) -> str:  # same format as the os.stat() path
+        return iso[:19].replace("T", " ") if iso else ""
+
+    return SearchResult(
+        path=path,
+        name=name,
+        is_dir=item.is_dir,
+        size=item.size,
+        date_modified=fmt(item.date_modified),
+        date_created=fmt(item.date_created),
+        extension=ext,
+    )
 
 
 def _parse_paths_and_stat(stdout: str) -> list[SearchResult]:

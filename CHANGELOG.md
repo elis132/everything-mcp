@@ -2,6 +2,18 @@
 
 All notable changes to **everything-mcp** will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Native IPC transport: es.exe is no longer required, and results are 7-200x faster.** The server now talks to Everything directly over its documented IPC (`WM_COPYDATA` / `EVERYTHING_IPC_QUERY2`, the same protocol es.exe uses), from pure `ctypes` - no es.exe, no SDK DLL, no new dependencies. Size and dates come back in Everything's reply, so results no longer need an `os.stat()` per file, which on network shares (SMB, mapped drives) costs one round trip each. Measured on Everything 1.4.1.1032 x64 with a 6.1M-entry index including NAS folder indexes, same MCP server, es.exe vs IPC: 500 results on an SMB share 49.5 s → 0.25 s, 100 xlsx on a share 7.0 s → 0.06 s, Korean name search 4.3 s → 0.65 s, `everything_find_recent` 1.2 s → 0.15 s, `everything_count_stats` 1.2 s → 0.09 s.
+  - Auto-selected when Everything's IPC window answers (default instance, then `1.5a`, or `EVERYTHING_INSTANCE`); named instances use the window class `EVERYTHING_TASKBAR_NOTIFICATION_(<name>)` as in es.exe. Falls back to es.exe otherwise. `EVERYTHING_TRANSPORT=es|ipc` forces one.
+  - Keeps every existing guard: the disk-reading term rules (#18), the per-process and machine-wide locks, and the busy-after-timeout behaviour (the IPC call keeps waiting in a daemon thread exactly like a pending es.exe).
+  - Only properties Everything has indexed are requested in the reply (`index_size`, `index_date_modified`, `index_date_created` from Everything.ini). Requesting an unindexed one makes Everything read it from disk for every result: date created for 500 SMB files took 22 s vs 0.9 s without it.
+  - `everything_count_stats` total size still needs es.exe (QUERY2 has no size aggregate); without es.exe it reports size as unavailable, as before for unsupported versions.
+- `health_check` / status reports the active `transport`.
+- Korean README (`README.ko.md`).
+
 ## [1.0.9] - 2026-09-25
 
 Root cause of #18, reproduced on Everything 1.4.1.1032: Everything answers IPC queries one at a time, and a query that arrives while a slow one runs blocks Everything completely (its window included) until the slow one finishes. Killing es.exe does not cancel a query inside Everything. Slow queries come from functions that read files from disk, which the search tool's own `content:TODO ext:py` example encouraged; with `content:` first, Everything 1.4 reads every file on every drive.

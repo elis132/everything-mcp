@@ -83,3 +83,18 @@ def _isolated_machine_lock(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_mod, "_MACHINE_LOCK", str(tmp_path / "everything-mcp.lock"))
     monkeypatch.setattr(backend_mod, "_last_release", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_ipc(request, monkeypatch):
+    """Keep auto-detection on the es.exe path unless a test opts into IPC.
+
+    On a Windows machine with Everything running, the native IPC window would
+    otherwise be found and change which transport the es.exe tests exercise.
+    Tests that cover IPC detection are marked ``@pytest.mark.ipc`` and mock it.
+    """
+    if request.node.get_closest_marker("ipc"):
+        return
+    import everything_mcp.config as config_mod
+
+    monkeypatch.setattr(config_mod, "_detect_ipc", lambda config, env_instance: False)
